@@ -37,40 +37,54 @@ type Service struct {
 var previousDate string
 
 func main() {
+	// List of Security groups to be updated
 	securityGroupIDs := []string{"sg-0f467b0f6743bfc22", "sg-0ec48f26429e25bfe"}
 
-	amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
-	jsonFilePath := "ip-ranges.json"
+	// List of services to be whitelisted
+	awsServiceWhitelist := []string{"API_GATEWAY", "AMAZON"}
 
-	// Download file
-	if err := downloadFile(jsonFilePath, amazonIPRangesURL); err != nil {
+	// JSON URL and local path
+	amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
+	jsonFileLocalPath := "ip-ranges.json"
+
+	// Download JSON file
+	if err := downloadFile(jsonFileLocalPath, amazonIPRangesURL); err != nil {
 		panic(err)
 	}
 
-	// TODO: Verify date
-	var services Services
-	var createDate = services.CreationDate
-
-	fmt.Println("Creation date: " + services.CreationDate)
-
-	if previousDate != createDate {
-		fmt.Println("File has changed, updating creation date to " + createDate)
-		previousDate = createDate
-	}
-
-	services, err := parseJSONFile(jsonFilePath)
+	// Parse JSON file with IP Ranges
+	services, err := parseJSONFile(jsonFileLocalPath)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(services)
 
+	// Verify if file has changes since last update
+	var createDate = services.CreationDate
+	if previousDate != createDate {
+		fmt.Println("File has changed since last run, updating creation date to " + createDate)
+		previousDate = createDate
+	}
+
+	// TODO: Check list of services against already whitelisted ones
+	fmt.Println(awsServiceWhitelist)
+
+	// Update Security Groups
 	if err := updateSecurityGroup(securityGroupIDs); err != nil {
 		panic(err)
 	}
 
+	// Print Security Group details
 	if err := describeSecurityGroup(securityGroupIDs); err != nil {
 		panic(err)
 	}
+
+	// TODO Remaining tasks
+	// 1. Get array of IP ranges we want to whitelist in parseJSONFile (or separate func)
+	// 2. Check security group ip limit and how to work around it
+	// 3. Send array of IP ranges to updateSecurityGroup func and loop through to update them
+	// 4. Convert to lambda function handler
+	// 5. Persistent way of storing previousDate var and checking it
+	// 6. OPTIONAL: Update only entries that don't exist already, as it seems AWS handles the already exist part with errors
 }
 
 func downloadFile(downloadPath, amazonIPRangesURL string) error {
@@ -113,6 +127,7 @@ func parseJSONFile(jsonFilePath string) (Services, error) {
 	// Unmarshal byte array into ipRanges data structure
 	json.Unmarshal(byteValue, &services)
 
+	// TODO: Update what todo with parsed json
 	for i := 0; i < len(services.Prefixes); i++ {
 		fmt.Printf("Service: %v - IP Prefix: %v", services.Prefixes[i].ServiceName, services.Prefixes[i].IPPrefix)
 		fmt.Println()
