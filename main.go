@@ -34,35 +34,35 @@ type Service struct {
 //     lambda.Start(Handler)
 // }
 
+var previousDate string
+
 func main() {
 	securityGroupIDs := []string{"sg-0f467b0f6743bfc22", "sg-0ec48f26429e25bfe"}
 
-	// amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
-	// jsonFilePath := "ip-ranges.json"
+	amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
+	jsonFilePath := "ip-ranges.json"
 
 	// Download file
-	// if err := downloadFile(jsonFilePath, amazonIPRangesURL); err != nil {
-	// 	panic(err)
-	// }
-	//
-	// fmt.Println("Downloaded: " + amazonIPRangesURL)
+	if err := downloadFile(jsonFilePath, amazonIPRangesURL); err != nil {
+		panic(err)
+	}
 
 	// TODO: Verify date
-	// var previousDate string
-	// var services Services
-	// var createDate = services.CreationDate
-	//
-	// fmt.Println("Creation date: " + services.CreationDate)
-	//
-	// if previousDate != createDate {
-	// 	fmt.Println("File has changed")
-	// 	previousDate = createDate
-	// }
+	var services Services
+	var createDate = services.CreationDate
 
-	// Parse JSON file
-	// if err := parseJSONFile(jsonFilePath); err != nil {
-	// 	panic(err)
-	// }
+	fmt.Println("Creation date: " + services.CreationDate)
+
+	if previousDate != createDate {
+		fmt.Println("File has changed, updating creation date to " + createDate)
+		previousDate = createDate
+	}
+
+	services, err := parseJSONFile(jsonFilePath)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(services)
 
 	if err := updateSecurityGroup(securityGroupIDs); err != nil {
 		panic(err)
@@ -73,9 +73,9 @@ func main() {
 	}
 }
 
-func downloadFile(downloadPath string, url string) error {
+func downloadFile(downloadPath, amazonIPRangesURL string) error {
 	// Get data
-	resp, err := http.Get(url)
+	resp, err := http.Get(amazonIPRangesURL)
 	if err != nil {
 		return err
 	}
@@ -90,14 +90,18 @@ func downloadFile(downloadPath string, url string) error {
 
 	// Write body to file
 	_, err = io.Copy(out, resp.Body)
+	defer fmt.Println("Downloaded: " + amazonIPRangesURL)
 	return err
 }
 
-func parseJSONFile(jsonFilePath string) error {
-	// Open JSON file - https://tutorialedge.net/golang/parsing-json-with-golang/
+func parseJSONFile(jsonFilePath string) (Services, error) {
+	// Initialize Services data structure
+	var services Services
+
+	// Open JSON file
 	jsonFile, err := os.Open(jsonFilePath)
 	if err != nil {
-		return err
+		return services, err
 	}
 
 	fmt.Println("Successfully opened: " + jsonFilePath)
@@ -105,9 +109,6 @@ func parseJSONFile(jsonFilePath string) error {
 
 	// Read JSON file as byte array
 	byteValue, _ := ioutil.ReadAll(jsonFile)
-
-	// Initialize Services data structure
-	var services Services
 
 	// Unmarshal byte array into ipRanges data structure
 	json.Unmarshal(byteValue, &services)
@@ -117,7 +118,7 @@ func parseJSONFile(jsonFilePath string) error {
 		fmt.Println()
 	}
 
-	return nil
+	return services, nil
 }
 
 func describeSecurityGroup(securityGroupIDs []string) error {
