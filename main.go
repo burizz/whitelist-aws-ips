@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 
@@ -53,10 +54,11 @@ func main() {
 	}
 
 	// Parse JSON file with IP Ranges
-	services, err := parseJSONFile(jsonFileLocalPath)
+	services, prefixForWhitelisting, err := parseJSONFile(jsonFileLocalPath, awsServiceWhitelist)
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println(prefixForWhitelisting)
 
 	// Verify if file has changes since last update
 	var createDate = services.CreationDate
@@ -108,14 +110,15 @@ func downloadFile(downloadPath, amazonIPRangesURL string) error {
 	return err
 }
 
-func parseJSONFile(jsonFilePath string) (Services, error) {
+func parseJSONFile(jsonFilePath string, awsServiceWhitelist []string) (Services, []string, error) {
 	// Initialize Services data structure
 	var services Services
+	var prefixForWhitelisting []string
 
 	// Open JSON file
 	jsonFile, err := os.Open(jsonFilePath)
 	if err != nil {
-		return services, err
+		return services, prefixForWhitelisting, err
 	}
 
 	fmt.Println("Successfully opened: " + jsonFilePath)
@@ -127,13 +130,20 @@ func parseJSONFile(jsonFilePath string) (Services, error) {
 	// Unmarshal byte array into ipRanges data structure
 	json.Unmarshal(byteValue, &services)
 
-	// TODO: Update what todo with parsed json
+	// Go through list of AWS services; get their IP Prefixes if in Whitelist
+	// https://golang.org/pkg/net/#IPNet.Contains ; https://stackoverflow.com/questions/19882961/go-golang-check-ip-address-in-range
 	for i := 0; i < len(services.Prefixes); i++ {
-		fmt.Printf("Service: %v - IP Prefix: %v", services.Prefixes[i].ServiceName, services.Prefixes[i].IPPrefix)
-		fmt.Println()
+		if searchStringInArray(services.Prefixes[i].ServiceName, awsServiceWhitelist) {
+			// fmt.Println(services.Prefixes[i].ServiceName)
+			// fmt.Println(services.Prefixes[i].IPPrefix)
+			_, subnet, _ := net.ParseCIDR(services.Prefixes[i].IPPrefix)
+			fmt.Println(subnet)
+		}
+		// fmt.Printf("Service: %v - IP Prefix: %v", services.Prefixes[i].ServiceName, services.Prefixes[i].IPPrefix)
+		// fmt.Println()
 	}
 
-	return services, nil
+	return services, prefixForWhitelisting, nil
 }
 
 func describeSecurityGroup(securityGroupIDs []string) error {
@@ -231,4 +241,13 @@ func updateSecurityGroup(securityGroupIDs []string) error {
 func exitErrorf(msg string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, msg+"\n", args...)
 	os.Exit(1)
+}
+
+func searchStringInArray(searchString string, list []string) bool {
+	for _, value := range list {
+		if value == searchString {
+			return true
+		}
+	}
+	return false
 }
