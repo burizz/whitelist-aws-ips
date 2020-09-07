@@ -35,8 +35,6 @@ type Service struct {
 //     lambda.Start(Handler)
 // }
 
-var previousDate string
-
 func main() {
 	// List of Security groups to be updated
 	securityGroupIDs := []string{"sg-0f467b0f6743bfc22", "sg-0ec48f26429e25bfe"}
@@ -59,6 +57,8 @@ func main() {
 		panic(err)
 	}
 	fmt.Println(prefixForWhitelisting)
+
+	var previousDate string
 
 	// Verify if file has changes since last update
 	var createDate = services.CreationDate
