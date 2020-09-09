@@ -40,7 +40,7 @@ func main() {
 	securityGroupIDs := []string{"sg-0f467b0f6743bfc22", "sg-0ec48f26429e25bfe"}
 
 	// List of services to be whitelisted
-	awsServiceWhitelist := []string{"API_GATEWAY", "AMAZON"}
+	awsServiceWhitelist := []string{"API_GATEWAY", "AMAZON", "EC2"}
 
 	// JSON URL and local path
 	amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
