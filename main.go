@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -40,9 +40,9 @@ func main() {
 	securityGroupIDs := []string{"sg-0f467b0f6743bfc22", "sg-0ec48f26429e25bfe"}
 
 	// List of services to be whitelisted
-	awsServiceWhitelist := []string{"API_GATEWAY", "AMAZON", "EC2"}
+	servicesToBeWhitelist := []string{"API_GATEWAY", "AMAZON", "EC2"}
 
-	// JSON URL and local path
+	// AWS JSON URL and local path to download it
 	amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
 	jsonFileLocalPath := "ip-ranges.json"
 
@@ -51,24 +51,28 @@ func main() {
 		panic(err)
 	}
 
-	// Parse JSON file with IP Ranges
-	services, prefixForWhitelisting, err := parseJSONFile(jsonFileLocalPath, awsServiceWhitelist)
+	// Parse JSON file into Services data structure
+	awsServices, err := parseJSONFile(jsonFileLocalPath)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(prefixForWhitelisting)
+
+	// Get IP ranges (/16) of all AWS Services that need to be whitelisted
+	prefixesForWhitelisting, err := parseIPRanges(awsServices, servicesToBeWhitelist)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(prefixesForWhitelisting)
 
 	var previousDate string
 
 	// Verify if file has changes since last update
-	var createDate = services.CreationDate
+	var createDate = awsServices.CreationDate
 	if previousDate != createDate {
 		fmt.Println("File has changed since last run, updating creation date to " + createDate)
 		previousDate = createDate
 	}
-
-	// TODO: Check list of services against already whitelisted ones
-	fmt.Println(awsServiceWhitelist)
 
 	// Update Security Groups
 	if err := updateSecurityGroup(securityGroupIDs); err != nil {
@@ -81,7 +85,6 @@ func main() {
 	}
 
 	// TODO Remaining tasks
-	// 1. Get array of IP ranges we want to whitelist in parseJSONFile (or separate func)
 	// 2. Check security group ip limit and how to work around it
 	// 3. Send array of IP ranges to updateSecurityGroup func and loop through to update them
 	// 4. Convert to lambda function handler
@@ -110,15 +113,14 @@ func downloadFile(downloadPath, amazonIPRangesURL string) error {
 	return err
 }
 
-func parseJSONFile(jsonFilePath string, awsServiceWhitelist []string) (Services, []string, error) {
-	// Initialize Services data structure
-	var services Services
-	var prefixForWhitelisting []string
+func parseJSONFile(jsonFilePath string) (Services, error) {
+	// Initialize JSON data structure
+	var awsServices Services
 
 	// Open JSON file
 	jsonFile, err := os.Open(jsonFilePath)
 	if err != nil {
-		return services, prefixForWhitelisting, err
+		return awsServices, err
 	}
 
 	fmt.Println("Successfully opened: " + jsonFilePath)
@@ -128,22 +130,32 @@ func parseJSONFile(jsonFilePath string, awsServiceWhitelist []string) (Services,
 	byteValue, _ := ioutil.ReadAll(jsonFile)
 
 	// Unmarshal byte array into ipRanges data structure
-	json.Unmarshal(byteValue, &services)
+	json.Unmarshal(byteValue, &awsServices)
+
+	return awsServices, nil
+}
+
+func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, error) {
+	var prefixForWhitelisting []string
 
 	// Go through list of AWS services; get their IP Prefixes if in Whitelist
 	// https://golang.org/pkg/net/#IPNet.Contains ; https://stackoverflow.com/questions/19882961/go-golang-check-ip-address-in-range
-	for i := 0; i < len(services.Prefixes); i++ {
-		if searchStringInArray(services.Prefixes[i].ServiceName, awsServiceWhitelist) {
-			// fmt.Println(services.Prefixes[i].ServiceName)
-			// fmt.Println(services.Prefixes[i].IPPrefix)
-			_, subnet, _ := net.ParseCIDR(services.Prefixes[i].IPPrefix)
-			fmt.Println(subnet)
+	for i := 0; i < len(awsServices.Prefixes); i++ {
+		// Check if service is to be whitelisted
+		if searchStringInArray(awsServices.Prefixes[i].ServiceName, serviceWhitelist) {
+
+			ipSlice := strings.Split(awsServices.Prefixes[i].IPPrefix, ".")
+			ipFirstTwoOctets := strings.Join(ipSlice[0:2], ".")
+			ipRange16 := ipFirstTwoOctets + ".0.0/16"
+
+			// Check if IP subnet range (/16) is already in whitelisted ranges
+			if !searchStringInArray(ipRange16, prefixForWhitelisting) {
+				prefixForWhitelisting = append(prefixForWhitelisting, ipRange16)
+			}
 		}
-		// fmt.Printf("Service: %v - IP Prefix: %v", services.Prefixes[i].ServiceName, services.Prefixes[i].IPPrefix)
-		// fmt.Println()
 	}
 
-	return services, prefixForWhitelisting, nil
+	return prefixForWhitelisting, nil
 }
 
 func describeSecurityGroup(securityGroupIDs []string) error {
