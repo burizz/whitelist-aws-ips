@@ -37,10 +37,10 @@ type Service struct {
 
 func main() {
 	// List of Security groups to be updated
-	securityGroupIDs := []string{"sg-0f467b0f6743bfc22", "sg-0ec48f26429e25bfe"}
+	securityGroupIDs := []string{"sg-041c5e7daf95e16a3", "sg-00ffabccebd5efda2"}
 
-	// List of services to be whitelisted
-	servicesToBeWhitelist := []string{"API_GATEWAY", "AMAZON", "EC2"}
+	// List of services to be whitelisted - e.g. AMAZON, COUDFRONT, S3, EC2, API_GATEWAY, DYNAMODB, ROUTE53_HEALTHCHECKS, CODEBUILD
+	servicesToBeWhitelist := []string{"S3"}
 
 	// AWS JSON URL and local path to download it
 	amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
@@ -63,19 +63,17 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println(prefixesForWhitelisting)
-
 	var previousDate string
 
 	// Verify if file has changes since last update
 	var createDate = awsServices.CreationDate
 	if previousDate != createDate {
-		fmt.Println("File has changed since last run, updating creation date to " + createDate)
+		fmt.Println("AWS JSON file has changed since last run, updating creation date to " + createDate)
 		previousDate = createDate
 	}
 
 	// Update Security Groups
-	if err := updateSecurityGroup(securityGroupIDs); err != nil {
+	if err := updateSecurityGroup(securityGroupIDs, prefixesForWhitelisting); err != nil {
 		panic(err)
 	}
 
@@ -83,13 +81,6 @@ func main() {
 	if err := describeSecurityGroup(securityGroupIDs); err != nil {
 		panic(err)
 	}
-
-	// TODO Remaining tasks
-	// 2. Check security group ip limit and how to work around it
-	// 3. Send array of IP ranges to updateSecurityGroup func and loop through to update them
-	// 4. Convert to lambda function handler
-	// 5. Persistent way of storing previousDate var and checking it
-	// 6. OPTIONAL: Update only entries that don't exist already, as it seems AWS handles the already exist part with errors
 }
 
 func downloadFile(downloadPath, amazonIPRangesURL string) error {
@@ -136,10 +127,9 @@ func parseJSONFile(jsonFilePath string) (Services, error) {
 }
 
 func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, error) {
-	var prefixForWhitelisting []string
+	var prefixesForWhitelisting []string
 
 	// Go through list of AWS services; get their IP Prefixes if in Whitelist
-	// https://golang.org/pkg/net/#IPNet.Contains ; https://stackoverflow.com/questions/19882961/go-golang-check-ip-address-in-range
 	for i := 0; i < len(awsServices.Prefixes); i++ {
 		// Check if service is to be whitelisted
 		if searchStringInArray(awsServices.Prefixes[i].ServiceName, serviceWhitelist) {
@@ -149,18 +139,18 @@ func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, e
 			ipRange16 := ipFirstTwoOctets + ".0.0/16"
 
 			// Check if IP subnet range (/16) is already in whitelisted ranges
-			if !searchStringInArray(ipRange16, prefixForWhitelisting) {
-				prefixForWhitelisting = append(prefixForWhitelisting, ipRange16)
+			if !searchStringInArray(ipRange16, prefixesForWhitelisting) {
+				prefixesForWhitelisting = append(prefixesForWhitelisting, ipRange16)
 			}
 		}
 	}
+	fmt.Printf("Amount of IP Ranges to be whitelisted [%v]", len(prefixesForWhitelisting))
+	fmt.Printf("List of IP Ranges %v\n", prefixesForWhitelisting)
 
-	return prefixForWhitelisting, nil
+	return prefixesForWhitelisting, nil
 }
 
 func describeSecurityGroup(securityGroupIDs []string) error {
-	// Expects array of SG IDs
-
 	// Create AWS session with default credentials and region (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String("eu-central-1")},
@@ -192,20 +182,17 @@ func describeSecurityGroup(securityGroupIDs []string) error {
 
 	// Display each security group
 	for _, group := range describeResult.SecurityGroups {
-		fmt.Println("\n### Security Group : ")
+		fmt.Println("\nDescribe Security Group : ")
 		fmt.Println("\n", group)
 	}
 	return nil
 }
 
-func updateSecurityGroup(securityGroupIDs []string) error {
-	// Expects array of SG IDs
-
+func updateSecurityGroup(securityGroupIDs []string, prefixesForWhitelisting []string) error {
 	// Create AWS session with default credentials and region (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String("eu-central-1")},
 	)
-
 	if err != nil {
 		panic(err)
 	}
@@ -213,37 +200,42 @@ func updateSecurityGroup(securityGroupIDs []string) error {
 	// Create an EC2 service client
 	svc := ec2.New(sess)
 
-	// Iterate over each Security Group and update its Egress according to Input
-	for _, securityGroup := range securityGroupIDs {
-		// Define Egress rule Input
-		input := &ec2.AuthorizeSecurityGroupEgressInput{
-			GroupId: aws.String(securityGroup),
-			IpPermissions: []*ec2.IpPermission{
-				{
-					FromPort:   aws.Int64(80),
-					ToPort:     aws.Int64(80),
-					IpProtocol: aws.String("tcp"),
-					IpRanges: []*ec2.IpRange{
-						{
-							CidrIp: aws.String("10.11.0.0/16"),
+	// Go over each IP range that is to be whitelisted
+	for _, ipRange16 := range prefixesForWhitelisting {
+		// Go over each Security Group and update its Egress according to Input
+		for _, securityGroup := range securityGroupIDs {
+			// Define Egress rule Input
+			fmt.Printf("\nAdding IP range [%v] to Security Group [%v]... \n", ipRange16, securityGroup)
+			input := &ec2.AuthorizeSecurityGroupEgressInput{
+				GroupId: aws.String(securityGroup),
+				IpPermissions: []*ec2.IpPermission{
+					{
+						FromPort:   aws.Int64(443),
+						ToPort:     aws.Int64(443),
+						IpProtocol: aws.String("tcp"),
+						IpRanges: []*ec2.IpRange{
+							{
+								CidrIp: aws.String(ipRange16),
+							},
 						},
 					},
 				},
-			},
-		}
+			}
 
-		// Update Security Group Egress rule from Input
-		_, err := svc.AuthorizeSecurityGroupEgress(input)
-		if err != nil {
-			if aerr, ok := err.(awserr.Error); ok {
-				switch aerr.Code() {
-				default:
-					fmt.Println(aerr.Error())
+			// Update Security Group Egress rule from Input
+			_, err := svc.AuthorizeSecurityGroupEgress(input)
+			if err != nil {
+				if aerr, ok := err.(awserr.Error); ok {
+					switch aerr.Code() {
+					default:
+						fmt.Println(aerr.Error())
+					}
+				} else {
+					// Print the error, cast err to awserr.Error to get the Code and Message from an error.
+					fmt.Println(err.Error())
 				}
 			} else {
-				// Print the error, cast err to awserr.Error to get the Code and
-				// Message from an error.
-				fmt.Println(err.Error())
+				fmt.Println("IP Range added successfully")
 			}
 		}
 	}
