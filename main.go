@@ -200,42 +200,51 @@ func updateSecurityGroup(securityGroupIDs []string, prefixesForWhitelisting []st
 	// Create an EC2 service client
 	svc := ec2.New(sess)
 
-	// Go over each IP range that is to be whitelisted
-	for _, ipRange16 := range prefixesForWhitelisting {
-		// Go over each Security Group and update its Egress according to Input
-		for _, securityGroup := range securityGroupIDs {
-			// Define Egress rule Input
-			fmt.Printf("\nAdding IP range [%v] to Security Group [%v]... \n", ipRange16, securityGroup)
-			input := &ec2.AuthorizeSecurityGroupEgressInput{
-				GroupId: aws.String(securityGroup),
-				IpPermissions: []*ec2.IpPermission{
-					{
-						FromPort:   aws.Int64(443),
-						ToPort:     aws.Int64(443),
-						IpProtocol: aws.String("tcp"),
-						IpRanges: []*ec2.IpRange{
-							{
-								CidrIp: aws.String(ipRange16),
+	var counter int
+
+	// Go over each Security Group and update its Egress according to Input
+	for _, securityGroup := range securityGroupIDs {
+		// Go over each IP range that is to be whitelisted
+		for _, ipRange16 := range prefixesForWhitelisting {
+			// Max 50 IP ranges per SG
+			if counter <= 50 {
+				// Define Egress rule Input
+				fmt.Printf("\nAdding IP range [%v] to Security Group [%v]... \n", ipRange16, securityGroup)
+				input := &ec2.AuthorizeSecurityGroupEgressInput{
+					GroupId: aws.String(securityGroup),
+					IpPermissions: []*ec2.IpPermission{
+						{
+							FromPort:   aws.Int64(443),
+							ToPort:     aws.Int64(443),
+							IpProtocol: aws.String("tcp"),
+							IpRanges: []*ec2.IpRange{
+								{
+									CidrIp: aws.String(ipRange16),
+								},
 							},
 						},
 					},
-				},
-			}
+				}
 
-			// Update Security Group Egress rule from Input
-			_, err := svc.AuthorizeSecurityGroupEgress(input)
-			if err != nil {
-				if aerr, ok := err.(awserr.Error); ok {
-					switch aerr.Code() {
-					default:
-						fmt.Println(aerr.Error())
+				// Update Security Group Egress rule from Input
+				_, err := svc.AuthorizeSecurityGroupEgress(input)
+				if err != nil {
+					if aerr, ok := err.(awserr.Error); ok {
+						switch aerr.Code() {
+						default:
+							fmt.Println(aerr.Error())
+						}
+					} else {
+						// Print the error, cast err to awserr.Error to get the Code and Message from an error.
+						fmt.Println(err.Error())
 					}
 				} else {
-					// Print the error, cast err to awserr.Error to get the Code and Message from an error.
-					fmt.Println(err.Error())
+					fmt.Println("IP Range added successfully")
 				}
-			} else {
-				fmt.Println("IP Range added successfully")
+
+				prefixesForWhitelisting = removeFromList(prefixesForWhitelisting, 0)
+				counter++
+				fmt.Println(prefixesForWhitelisting)
 			}
 		}
 	}
@@ -254,4 +263,8 @@ func searchStringInArray(searchString string, list []string) bool {
 		}
 	}
 	return false
+}
+
+func removeFromList(slice []string, index int) []string {
+	return append(slice[:index], slice[index+1:]...)
 }
