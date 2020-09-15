@@ -77,10 +77,10 @@ func main() {
 		panic(err)
 	}
 
-	// Print Security Group details
-	if err := describeSecurityGroup(securityGroupIDs); err != nil {
-		panic(err)
-	}
+	// // Print Security Group details
+	// if err := describeSecurityGroup(securityGroupIDs); err != nil {
+	// 	panic(err)
+	// }
 }
 
 func downloadFile(downloadPath, amazonIPRangesURL string) error {
@@ -182,7 +182,7 @@ func describeSecurityGroup(securityGroupIDs []string) error {
 
 	// Display each security group
 	for _, group := range describeResult.SecurityGroups {
-		fmt.Println("\nDescribe Security Group : ")
+		fmt.Println("\nDescribe Security Group Egress Rules : ")
 		fmt.Println("\n", group)
 	}
 	return nil
