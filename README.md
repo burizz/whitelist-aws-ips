@@ -5,11 +5,12 @@ Pulls latest JSON from - https://docs.aws.amazon.com/general/latest/gr/aws-ip-ra
 *This was done just for coding practice in Go, so it's probably not a good idea to use it for anything serious.*
 
 Remaining todo : 
-- [ ] Accomodate for SG limit of 60 inbound/outbound rules (maybe counter and them to multiple SGs ?)
+- [x] Accomodate for SG limit of 60 inbound/outbound rules (maybe counter and them to multiple SGs ?)
 - [x] Send array of IP ranges to updateSecurityGroup and update them in SG
 - [ ] Convert to lambda function handler
-- [ ] Persistent way of storing previousDate var and checking it
+- [ ] Persistent way of storing previousDate var and checking it - SSM param store ?
 - [ ] Update only entries that don't exist already, as it seems AWS handles the already exist part with errors
+- [ ] Better error handling -  errors.New("") or log.Fatal(err)
 
 ### Go Dependencies
 ```

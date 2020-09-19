@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -40,7 +41,7 @@ func main() {
 	securityGroupIDs := []string{"sg-041c5e7daf95e16a3", "sg-00ffabccebd5efda2"}
 
 	// List of services to be whitelisted - e.g. AMAZON, COUDFRONT, S3, EC2, API_GATEWAY, DYNAMODB, ROUTE53_HEALTHCHECKS, CODEBUILD
-	servicesToBeWhitelist := []string{"S3"}
+	servicesToBeWhitelist := []string{"S3", "AMAZON"}
 
 	// AWS JSON URL and local path to download it
 	amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
@@ -63,24 +64,25 @@ func main() {
 		panic(err)
 	}
 
-	var previousDate string
-
-	// Verify if file has changes since last update
-	var createDate = awsServices.CreationDate
-	if previousDate != createDate {
-		fmt.Println("AWS JSON file has changed since last run, updating creation date to " + createDate)
-		previousDate = createDate
-	}
-
-	// Update Security Groups
-	if err := updateSecurityGroup(securityGroupIDs, prefixesForWhitelisting); err != nil {
+	// Check if AWS JSON file was modified since last run
+	if err := checkIfFileModified(awsServices); err != nil {
 		panic(err)
 	}
 
-	// // Print Security Group details
-	// if err := describeSecurityGroup(securityGroupIDs); err != nil {
-	// 	panic(err)
-	// }
+	// Check how many SGs we need
+	if err := checkSGCount(securityGroupIDs, prefixesForWhitelisting); err != nil {
+		panic(err)
+	}
+
+	// Update Security Groups
+	if err := updateSecurityGroups(securityGroupIDs, prefixesForWhitelisting); err != nil {
+		panic(err)
+	}
+
+	// Describe Security Groups
+	if err := describeSecurityGroups(securityGroupIDs); err != nil {
+		panic(err)
+	}
 }
 
 func downloadFile(downloadPath, amazonIPRangesURL string) error {
@@ -150,7 +152,113 @@ func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, e
 	return prefixesForWhitelisting, nil
 }
 
-func describeSecurityGroup(securityGroupIDs []string) error {
+func checkIfFileModified(awsServices Services) error {
+	// Check if the AWS JSON file was modified since last run
+
+	var previousDate string
+	// previousDate := "2020-09-18-21-51-15"
+
+	// Verify if file has changes since last update
+	var createDate = awsServices.CreationDate
+	if previousDate != createDate {
+		fmt.Println("Previous Date " + previousDate)
+		fmt.Println("AWS JSON file has changed since last run, updating creation date to " + createDate)
+		pointerToDate := &previousDate
+		*pointerToDate = createDate
+	} else {
+		fmt.Println("Last modifed date : " + previousDate)
+		errMsg := fmt.Sprintf("[ERROR]: File has not changed since last run, skipping ... ")
+		return errors.New(errMsg)
+	}
+	return nil
+}
+
+func checkSGCount(securityGroupIDs []string, prefixesForWhitelisting []string) error {
+	// Calculate how many SGs are needed to fit all IP Prefixes
+	sgAmountNeeded := len(prefixesForWhitelisting)/50 + 1
+	sgAmountProvided := len(securityGroupIDs)
+
+	if sgAmountProvided < sgAmountNeeded {
+		// fmt.Printf("You will need %d security groups, you porvided %d", sgAmountNeeded, sgAmountProvided)
+		errMsg := fmt.Sprintf("[ERROR]: You will need [%d] Security Groups, you provided [%d]", sgAmountNeeded, sgAmountProvided)
+		return errors.New(errMsg)
+	}
+
+	return nil
+}
+
+func updateSecurityGroups(securityGroupIDs []string, prefixesForWhitelisting []string) error {
+	// Create AWS session with default credentials and region (in ENV vars)
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String("eu-central-1")},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create an EC2 service client
+	svc := ec2.New(sess)
+
+	var counter int
+
+	for _, securityGroup := range securityGroupIDs {
+		// Go over each IP range and add it in SG
+		for indexKey := range prefixesForWhitelisting {
+			fmt.Printf("\nAdding IP range [%v] to Security Group [%v]... \n", prefixesForWhitelisting[indexKey], securityGroup)
+			// Update Security Group with IP Prefix
+			if err := awsUpdateSg(svc, prefixesForWhitelisting[indexKey], securityGroup); err != nil {
+				return err
+			}
+
+			// Max 50 IP ranges per SG
+			if counter == 50 {
+				counter = 0
+				break
+			} else {
+				counter++
+			}
+		}
+	}
+	return nil
+}
+
+func awsUpdateSg(ec2ClientSvc *ec2.EC2, prefixesForWhitelisting string, securityGroup string) error {
+	// Define Egress rule Input
+	input := &ec2.AuthorizeSecurityGroupEgressInput{
+		GroupId: aws.String(securityGroup),
+		IpPermissions: []*ec2.IpPermission{
+			{
+				FromPort:   aws.Int64(443),
+				ToPort:     aws.Int64(443),
+				IpProtocol: aws.String("tcp"),
+				IpRanges: []*ec2.IpRange{
+					{
+						CidrIp: aws.String(prefixesForWhitelisting),
+					},
+				},
+			},
+		},
+	}
+
+	// Update Security Group Egress rule from Input
+	_, err := ec2ClientSvc.AuthorizeSecurityGroupEgress(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			default:
+				fmt.Println(aerr.Error())
+			}
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and Message from an error.
+			fmt.Println(err.Error())
+		}
+	} else {
+		fmt.Println("IP Range added successfully")
+	}
+	return nil
+}
+
+func describeSecurityGroups(securityGroupIDs []string) error {
 	// Create AWS session with default credentials and region (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String("eu-central-1")},
@@ -188,69 +296,6 @@ func describeSecurityGroup(securityGroupIDs []string) error {
 	return nil
 }
 
-func updateSecurityGroup(securityGroupIDs []string, prefixesForWhitelisting []string) error {
-	// Create AWS session with default credentials and region (in ENV vars)
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("eu-central-1")},
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	// Create an EC2 service client
-	svc := ec2.New(sess)
-
-	var counter int
-
-	// Go over each Security Group and update its Egress according to Input
-	for _, securityGroup := range securityGroupIDs {
-		// Go over each IP range that is to be whitelisted
-		for _, ipRange16 := range prefixesForWhitelisting {
-			// Max 50 IP ranges per SG
-			if counter <= 50 {
-				// Define Egress rule Input
-				fmt.Printf("\nAdding IP range [%v] to Security Group [%v]... \n", ipRange16, securityGroup)
-				input := &ec2.AuthorizeSecurityGroupEgressInput{
-					GroupId: aws.String(securityGroup),
-					IpPermissions: []*ec2.IpPermission{
-						{
-							FromPort:   aws.Int64(443),
-							ToPort:     aws.Int64(443),
-							IpProtocol: aws.String("tcp"),
-							IpRanges: []*ec2.IpRange{
-								{
-									CidrIp: aws.String(ipRange16),
-								},
-							},
-						},
-					},
-				}
-
-				// Update Security Group Egress rule from Input
-				_, err := svc.AuthorizeSecurityGroupEgress(input)
-				if err != nil {
-					if aerr, ok := err.(awserr.Error); ok {
-						switch aerr.Code() {
-						default:
-							fmt.Println(aerr.Error())
-						}
-					} else {
-						// Print the error, cast err to awserr.Error to get the Code and Message from an error.
-						fmt.Println(err.Error())
-					}
-				} else {
-					fmt.Println("IP Range added successfully")
-				}
-
-				prefixesForWhitelisting = removeFromList(prefixesForWhitelisting, 0)
-				counter++
-				fmt.Println(prefixesForWhitelisting)
-			}
-		}
-	}
-	return nil
-}
-
 func exitErrorf(msg string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, msg+"\n", args...)
 	os.Exit(1)
@@ -263,8 +308,4 @@ func searchStringInArray(searchString string, list []string) bool {
 		}
 	}
 	return false
-}
-
-func removeFromList(slice []string, index int) []string {
-	return append(slice[:index], slice[index+1:]...)
 }
