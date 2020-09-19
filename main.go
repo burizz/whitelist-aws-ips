@@ -14,6 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/ssm"
+	// import "github.com/aws/aws-sdk-go-v2/service/ssm"
 	// "github.com/aws/aws-lambda-go/lambda"
 )
 
@@ -43,9 +45,12 @@ func main() {
 	// List of services to be whitelisted - e.g. AMAZON, COUDFRONT, S3, EC2, API_GATEWAY, DYNAMODB, ROUTE53_HEALTHCHECKS, CODEBUILD
 	servicesToBeWhitelist := []string{"S3", "AMAZON"}
 
-	// AWS JSON URL and local path to download it
+	// AWS JSON URL and local download path
 	amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
 	jsonFileLocalPath := "ip-ranges.json"
+
+	// AWS SSM Param Store that hold the last modified date of the JSON file - format "2020-09-18-21-51-15"
+	previousDateParamStore := "lastModifiedDateIPRanges"
 
 	// Download JSON file
 	if err := downloadFile(jsonFileLocalPath, amazonIPRangesURL); err != nil {
@@ -65,7 +70,7 @@ func main() {
 	}
 
 	// Check if AWS JSON file was modified since last run
-	if err := checkIfFileModified(awsServices); err != nil {
+	if err := checkIfFileModified(awsServices, previousDateParamStore); err != nil {
 		panic(err)
 	}
 
@@ -152,11 +157,12 @@ func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, e
 	return prefixesForWhitelisting, nil
 }
 
-func checkIfFileModified(awsServices Services) error {
+func checkIfFileModified(awsServices Services, previousDateParamStore string) error {
 	// Check if the AWS JSON file was modified since last run
-
-	var previousDate string
-	// previousDate := "2020-09-18-21-51-15"
+	previousDate, err := getParamStoreValue(previousDateParamStore)
+	if err != nil {
+		panic(err)
+	}
 
 	// Verify if file has changes since last update
 	var createDate = awsServices.CreationDate
@@ -171,6 +177,30 @@ func checkIfFileModified(awsServices Services) error {
 		return errors.New(errMsg)
 	}
 	return nil
+}
+
+func getParamStoreValue(previousDateParamStore string) (string, error) {
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String("eu-central-1")},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(previousDateParamStore)
+
+	// Create an AWS SSM service client
+	ssmService := ssm.New(sess, aws.NewConfig())
+	paramKey, err := ssmService.GetParameter(&ssm.GetParameterInput{
+		Name:           aws.String(previousDateParamStore),
+		WithDecryption: aws.Bool(false),
+	})
+	if err != nil {
+		panic(err)
+	}
+	paramValue := *paramKey.Parameter.Value
+	fmt.Println(paramValue)
+	return paramValue, nil
 }
 
 func checkSGCount(securityGroupIDs []string, prefixesForWhitelisting []string) error {
@@ -196,7 +226,7 @@ func updateSecurityGroups(securityGroupIDs []string, prefixesForWhitelisting []s
 		panic(err)
 	}
 
-	// Create an EC2 service client
+	// Create an AWS EC2 service client
 	svc := ec2.New(sess)
 
 	var counter int
@@ -268,7 +298,7 @@ func describeSecurityGroups(securityGroupIDs []string) error {
 		panic(err)
 	}
 
-	// Create an EC2 service client
+	// Create an AWS EC2 service client
 	svc := ec2.New(sess)
 
 	// Describe current state of Security Groups

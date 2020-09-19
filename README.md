@@ -1,16 +1,16 @@
-# Lambda for whitelisting amazon IP ranges
+# Lambda for whitelisting Amazon IP ranges in Security Groups
 Lambda for updating Security Group Egress rules with AWS IP Ranges
 Pulls latest JSON from - https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html
 
-*This was done just for coding practice in Go, so it's probably not a good idea to use it for anything serious.*
-
-Remaining todo : 
-- [x] Accomodate for SG limit of 60 inbound/outbound rules (maybe counter and them to multiple SGs ?)
-- [x] Send array of IP ranges to updateSecurityGroup and update them in SG
-- [ ] Convert to lambda function handler
+TODO :
+- [x] Download Amazon IP file JSON file and parse JSON data structure
+- [x] Update list of IP ranges in Security Groups / Describe Security Groups
+- [x] Work around SG limit of 60 inbound/outbound rules
 - [ ] Persistent way of storing previousDate var and checking it - SSM param store ?
 - [ ] Update only entries that don't exist already, as it seems AWS handles the already exist part with errors
-- [ ] Better error handling -  errors.New("") or log.Fatal(err)
+- [ ] Better error handling
+- [ ] Implement lambda function handler instead of main
+- [ ] Figure out a good way to link all SGs at the end into a single one - inheritance ?
 
 ### Go Dependencies
 ```
@@ -36,14 +36,24 @@ $env:AWS_REGION='eu-central-1'
 ### Variables
 ```
 // List of Security groups to be updated
-securityGroupIDs := []string{"sg-0f467b0f6743bfc22", "sg-0ec48f26429e25bfe"}
+securityGroupIDs := []string{"sg-041c5e7daf95e16a3", "sg-00ffabccebd5efda2"}
 
-// List of services to be whitelisted - e.g. AMAZON, COUDFRONT, S3, EC2, API_GATEWAY, DYNAMODB, OUTE53_HEALTHCHECKS, CODEBUILD
-servicesToBeWhitelist := []string{"S3", "CODEBUILD", "AMAZON"}
+// List of services to be whitelisted - e.g. AMAZON, COUDFRONT, S3, EC2, API_GATEWAY, DYNAMODB, ROUTE53_HEALTHCHECKS, CODEBUILD
+servicesToBeWhitelist := []string{"S3", "AMAZON"}
 
-// AWS JSON URL and local path to download it
+// AWS JSON URL and local download path
 amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
 jsonFileLocalPath := "ip-ranges.json"
+
+// AWS SSM Param Store that hold the last modified date of the JSON file - format "2020-09-18-21-51-15"
+previousDateParamStore := "lastModifiedDateIPRanges"
+```
+
+### Common errors
+```
+# You need a IAM policy with permissions to SSM : 
+panic: AccessDeniedException: User: arn:aws:iam::111111111111:user/test is not authorized to perform: ssm:GetParameter on resource: arn:aws:ssm:eu-central-1:111111111111:parameter/lastModifiedDateIPRanges
+        status code: 400, request id: 4a0ab454-176d-4bc6-9418-78529da0f944
 ```
 
 ### Example Output
