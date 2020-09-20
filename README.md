@@ -6,7 +6,7 @@ TODO :
 - [x] Download Amazon IP file JSON file and parse JSON data structure
 - [x] Update list of IP ranges in Security Groups / Describe Security Groups
 - [x] Work around SG limit of 60 inbound/outbound rules
-- [ ] Persistent way of storing previousDate var and checking it - SSM param store ?
+- [ ] Persistent way of storing JSON modified date - SSM Param Store
 - [ ] Update only entries that don't exist already, as it seems AWS handles the already exist part with errors
 - [ ] Better error handling
 - [ ] Implement lambda function handler instead of main
@@ -35,7 +35,7 @@ $env:AWS_REGION='eu-central-1'
 
 ### Variables
 ```
-// List of Security groups to be updated
+// List of Security groups to be updated - you need to provide enough to fit all IP ranges
 securityGroupIDs := []string{"sg-041c5e7daf95e16a3", "sg-00ffabccebd5efda2"}
 
 // List of services to be whitelisted - e.g. AMAZON, COUDFRONT, S3, EC2, API_GATEWAY, DYNAMODB, ROUTE53_HEALTHCHECKS, CODEBUILD
@@ -50,11 +50,26 @@ previousDateParamStore := "lastModifiedDateIPRanges"
 ```
 
 ### Common errors
+
+##### SSM Param Store
 ```
 # You need a IAM policy with permissions to SSM : 
 panic: AccessDeniedException: User: arn:aws:iam::111111111111:user/test is not authorized to perform: ssm:GetParameter on resource: arn:aws:ssm:eu-central-1:111111111111:parameter/lastModifiedDateIPRanges
         status code: 400, request id: 4a0ab454-176d-4bc6-9418-78529da0f944
 ```
+
+```
+# SSM Parameter Store is misspelled or does not exist :
+panic: ParameterNotFound: 
+``` 
+
+##### Security Groups
+```
+# You did not provide endough Security Groups to fit all IP ranges :
+panic: [ERROR]: You will need [5] Security Groups, you provided [2]
+```
+
+
 
 ### Example Output
 ```go run .\main.go

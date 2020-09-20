@@ -43,7 +43,7 @@ func main() {
 	securityGroupIDs := []string{"sg-041c5e7daf95e16a3", "sg-00ffabccebd5efda2"}
 
 	// List of services to be whitelisted - e.g. AMAZON, COUDFRONT, S3, EC2, API_GATEWAY, DYNAMODB, ROUTE53_HEALTHCHECKS, CODEBUILD
-	servicesToBeWhitelist := []string{"S3", "AMAZON"}
+	servicesToBeWhitelist := []string{"S3"}
 
 	// AWS JSON URL and local download path
 	amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
@@ -69,13 +69,13 @@ func main() {
 		panic(err)
 	}
 
-	// Check if AWS JSON file was modified since last run
-	if err := checkIfFileModified(awsServices, previousDateParamStore); err != nil {
+	// Check how many SGs we need
+	if err := checkSGCount(securityGroupIDs, prefixesForWhitelisting); err != nil {
 		panic(err)
 	}
 
-	// Check how many SGs we need
-	if err := checkSGCount(securityGroupIDs, prefixesForWhitelisting); err != nil {
+	// Check if AWS JSON file was modified since last run
+	if err := checkIfFileModified(awsServices, previousDateParamStore); err != nil {
 		panic(err)
 	}
 
@@ -165,12 +165,14 @@ func checkIfFileModified(awsServices Services, previousDateParamStore string) er
 	}
 
 	// Verify if file has changes since last update
-	var createDate = awsServices.CreationDate
-	if previousDate != createDate {
+	var currentDate = awsServices.CreationDate
+	if previousDate != currentDate {
 		fmt.Println("Previous Date " + previousDate)
-		fmt.Println("AWS JSON file has changed since last run, updating creation date to " + createDate)
+		fmt.Println("AWS JSON file has changed since last run, updating creation date to " + currentDate)
 		pointerToDate := &previousDate
-		*pointerToDate = createDate
+		*pointerToDate = currentDate
+		// Update Date in SSM Param Store
+		// setParamStoreValue(previousDateParamStore, currentDate)
 	} else {
 		fmt.Println("Last modifed date : " + previousDate)
 		errMsg := fmt.Sprintf("[ERROR]: File has not changed since last run, skipping ... ")
@@ -187,10 +189,9 @@ func getParamStoreValue(previousDateParamStore string) (string, error) {
 		panic(err)
 	}
 
-	fmt.Println(previousDateParamStore)
-
 	// Create an AWS SSM service client
 	ssmService := ssm.New(sess, aws.NewConfig())
+	// Get SSM Param Store value
 	paramKey, err := ssmService.GetParameter(&ssm.GetParameterInput{
 		Name:           aws.String(previousDateParamStore),
 		WithDecryption: aws.Bool(false),
@@ -202,6 +203,25 @@ func getParamStoreValue(previousDateParamStore string) (string, error) {
 	fmt.Println(paramValue)
 	return paramValue, nil
 }
+
+// func setParamStoreValue(previousDateParamStore string, currentDate string) error {
+// 	sess, err := session.NewSession(&aws.Config{
+// 		Region: aws.String("eu-central-1")},
+// 	)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+
+// 	fmt.Println(previousDateParamStore)
+
+// 	// Create an AWS SSM service client
+// 	// aws ssm put-parameter --region us-east-1 --name staging.flextimemanager.com-versioning --type String --value "$new_version" --overwrite
+// 	ssmService := ssm.New(sess, aws.NewConfig())
+// 	paramKey, err := ssmService.GetParameter(&ssm.GetParameterOutput{
+// 		Parameter: previousDateParamStore,
+// 	})
+// 	return nil
+// }
 
 func checkSGCount(securityGroupIDs []string, prefixesForWhitelisting []string) error {
 	// Calculate how many SGs are needed to fit all IP Prefixes
