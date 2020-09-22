@@ -1,7 +1,11 @@
-# Lambda for whitelisting Amazon IP ranges in Security Groups
-Lambda for updating Security Group Egress rules with AWS IP Ranges
+# AWS IP Ranges - Lambda
+
+Lambda for whitelisting Amazon IP ranges in Security Group outbound rules
+
+Works by updating Security Group Egress rules with a list of AWS IP Ranges based on AWS Service Nam.
 Pulls latest JSON from - https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html
 
+This is still work in progress : 
 TODO :
 - [x] Download Amazon IP file JSON file and parse JSON data structure
 - [x] Update list of IP ranges in Security Groups / Describe Security Groups
@@ -61,7 +65,7 @@ panic: AccessDeniedException: User: arn:aws:iam::111111111111:user/test is not a
 
 ```
 # SSM Parameter Store is misspelled or does not exist :
-panic: ParameterNotFound: 
+panic: [ERROR]: ParameterNotFound: 
 ``` 
 
 ##### Security Groups
