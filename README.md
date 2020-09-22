@@ -6,9 +6,10 @@ TODO :
 - [x] Download Amazon IP file JSON file and parse JSON data structure
 - [x] Update list of IP ranges in Security Groups / Describe Security Groups
 - [x] Work around SG limit of 60 inbound/outbound rules
-- [ ] Persistent way of storing JSON modified date - SSM Param Store
-- [ ] Update only entries that don't exist already, as it seems AWS handles the already exist part with errors
-- [ ] Better error handling
+- [x] Persistent way of storing JSON modified date - SSM Param Store
+- [x] Better error handling
+- [ ] Update only entries that don't exist already
+- [ ] Make AWS region configurable
 - [ ] Implement lambda function handler instead of main
 - [ ] Figure out a good way to link all SGs at the end into a single one - inheritance ?
 
