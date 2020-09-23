@@ -7,13 +7,13 @@ Pulls latest JSON from - https://docs.aws.amazon.com/general/latest/gr/aws-ip-ra
 
 This is still work in progress : 
 TODO :
-- [x] Download Amazon IP file JSON file and parse JSON data structure
+- [x] Download Amazon IP range file and parse JSON data structure
 - [x] Update list of IP ranges in Security Groups / Describe Security Groups
 - [x] Work around SG limit of 60 inbound/outbound rules
 - [x] Persistent way of storing JSON modified date - SSM Param Store
 - [x] Better error handling
+- [x] Make AWS region configurable
 - [ ] Update only entries that don't exist already
-- [ ] Make AWS region configurable
 - [ ] Implement lambda function handler instead of main
 - [ ] Figure out a good way to link all SGs at the end into a single one - inheritance ?
 
@@ -28,23 +28,21 @@ go get -u github.com/aws/aws-lambda-go/lambda
 # Linux
 export AWS_ACCESS_KEY_ID=YOUR_AKID
 export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
-export AWS_REGION=eu-central-1
 ```
 
 ```
 # Windows
 $env:AWS_ACCESS_KEY_ID='YOUR_AKID'
 $env:AWS_SECRET_ACCESS_KEY='YOUR_SECRET_KEY'
-$env:AWS_REGION='eu-central-1'
 ```
 
 ### Variables
 ```
-// List of Security groups to be updated - you need to provide enough to fit all IP ranges
+// List of Security groups to be updated
 securityGroupIDs := []string{"sg-041c5e7daf95e16a3", "sg-00ffabccebd5efda2"}
 
 // List of services to be whitelisted - e.g. AMAZON, COUDFRONT, S3, EC2, API_GATEWAY, DYNAMODB, ROUTE53_HEALTHCHECKS, CODEBUILD
-servicesToBeWhitelist := []string{"S3", "AMAZON"}
+servicesToBeWhitelist := []string{"S3"}
 
 // AWS JSON URL and local download path
 amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
@@ -52,6 +50,9 @@ jsonFileLocalPath := "ip-ranges.json"
 
 // AWS SSM Param Store that hold the last modified date of the JSON file - format "2020-09-18-21-51-15"
 previousDateParamStore := "lastModifiedDateIPRanges"
+
+// Set AWS Region
+awsRegion := "eu-central-1"
 ```
 
 ### Common errors

@@ -51,6 +51,9 @@ func main() {
 	// AWS SSM Param Store that hold the last modified date of the JSON file - format "2020-09-18-21-51-15"
 	previousDateParamStore := "lastModifiedDateIPRanges"
 
+	// Set AWS Region
+	awsRegion := "eu-central-1"
+
 	// Download JSON file
 	if err := downloadFile(jsonFileLocalPath, amazonIPRangesURL); err != nil {
 		panic(err)
@@ -74,12 +77,12 @@ func main() {
 	}
 
 	// Check if AWS JSON file was modified since last run
-	if err := checkIfFileModified(awsServices, previousDateParamStore); err != nil {
+	if err := checkIfFileModified(awsServices, previousDateParamStore, awsRegion); err != nil {
 		panic(err)
 	}
 
 	// Update Security Groups
-	if err := updateSecurityGroups(securityGroupIDs, prefixesForWhitelisting); err != nil {
+	if err := updateSecurityGroups(securityGroupIDs, prefixesForWhitelisting, awsRegion); err != nil {
 		panic(err)
 	}
 
@@ -93,21 +96,21 @@ func downloadFile(downloadPath, amazonIPRangesURL string) error {
 	// Get data
 	resp, err := http.Get(amazonIPRangesURL)
 	if err != nil {
-		return fmt.Errorf("[ERROR]: Cannot open remote URL: %w", err)
+		return fmt.Errorf("Cannot open remote URL: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Create file
 	out, err := os.Create(downloadPath)
 	if err != nil {
-		return fmt.Errorf("[ERROR]: Cannot create local file: %w", err)
+		return fmt.Errorf("Cannot create local file: %w", err)
 	}
 	defer out.Close()
 
 	// Write body to file
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
-		return fmt.Errorf("[ERROR]: Cannot write Response Body to file: %w", err)
+		return fmt.Errorf("Cannot write Response Body to file: %w", err)
 	}
 
 	fmt.Println("Successfully downloaded: " + amazonIPRangesURL)
@@ -121,7 +124,7 @@ func parseJSONFile(jsonFilePath string) (Services, error) {
 	// Open JSON file
 	jsonFile, err := os.Open(jsonFilePath)
 	if err != nil {
-		return awsServices, fmt.Errorf("[ERROR]: Cannot open JSON file: %w", err)
+		return awsServices, fmt.Errorf("Cannot open JSON file: %w", err)
 	}
 
 	fmt.Println("Successfully opened: " + jsonFilePath)
@@ -130,11 +133,11 @@ func parseJSONFile(jsonFilePath string) (Services, error) {
 	// Read JSON file as byte array
 	byteValue, err := ioutil.ReadAll(jsonFile)
 	if err != nil {
-		return awsServices, fmt.Errorf("[ERROR]: Cannot read JSON file as byte array: %w", err)
+		return awsServices, fmt.Errorf("Cannot read JSON file as byte array: %w", err)
 	}
 	// Unmarshal byte array into ipRanges data structure
 	if err := json.Unmarshal(byteValue, &awsServices); err != nil {
-		return awsServices, fmt.Errorf("[ERROR]: Cannot Unmarshal JSON into awsService data structure: %w", err)
+		return awsServices, fmt.Errorf("Cannot Unmarshal JSON into awsService data structure: %w", err)
 	}
 
 	fmt.Println("JSON file parsed")
@@ -161,7 +164,7 @@ func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, e
 	}
 
 	if len(prefixesForWhitelisting) <= 0 {
-		return prefixesForWhitelisting, fmt.Errorf("[ERROR]: No IP ranges added in list")
+		return prefixesForWhitelisting, fmt.Errorf("No IP ranges added in list")
 	}
 
 	fmt.Printf("Amount of IP Ranges to be whitelisted [%v]", len(prefixesForWhitelisting))
@@ -169,11 +172,11 @@ func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, e
 	return prefixesForWhitelisting, nil
 }
 
-func checkIfFileModified(awsServices Services, previousDateParamStore string) error {
+func checkIfFileModified(awsServices Services, previousDateParamStore string, awsRegion string) error {
 	// Check if the AWS JSON file was modified since last run
-	previousDate, err := getParamStoreValue(previousDateParamStore)
+	previousDate, err := getParamStoreValue(previousDateParamStore, awsRegion)
 	if err != nil {
-		return fmt.Errorf("[ERROR]: Cannot get SSM Parameter store value: %w", err)
+		return fmt.Errorf("Cannot get SSM Parameter store: %w", err)
 	}
 
 	// Type of SSM parameter - String | StringList | SecureString
@@ -185,20 +188,20 @@ func checkIfFileModified(awsServices Services, previousDateParamStore string) er
 		fmt.Println("Previous Date " + previousDate)
 		fmt.Println("AWS JSON file has changed since last run, updating creation date to " + currentDate)
 		// Update Date in SSM Param Store
-		setParamStoreValue(previousDateParamStore, currentDate, ssmParamType)
+		setParamStoreValue(previousDateParamStore, currentDate, ssmParamType, awsRegion)
 	} else {
 		fmt.Println("Last modifed date : " + previousDate)
-		return fmt.Errorf("[ERROR]: Amazon JSON file has not changed since last run, exiting ... ")
+		return fmt.Errorf("Amazon JSON file has not changed since last run, exiting ... ")
 	}
 	return nil
 }
 
-func getParamStoreValue(previousDateParamStore string) (string, error) {
+func getParamStoreValue(previousDateParamStore string, awsRegion string) (string, error) {
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("eu-central-1")},
+		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return "", fmt.Errorf("[ERROR]: Cannot create AWS config sessions: %w", err)
+		return previousDateParamStore, fmt.Errorf("Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create an AWS SSM service client
@@ -209,19 +212,19 @@ func getParamStoreValue(previousDateParamStore string) (string, error) {
 		WithDecryption: aws.Bool(false),
 	})
 	if err != nil {
-		return "", fmt.Errorf("[ERROR]: Cannot Get SSM Parameter %w", err)
+		return previousDateParamStore, fmt.Errorf("Get SSM Parameter: %w", err)
 	}
 	paramValue := *paramKey.Parameter.Value
 	fmt.Println(paramValue)
 	return paramValue, nil
 }
 
-func setParamStoreValue(previousDateParamStore string, currentDate string, paramType string) error {
+func setParamStoreValue(previousDateParamStore string, currentDate string, paramType string, awsRegion string) error {
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("eu-central-1")},
+		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return fmt.Errorf("[ERROR]: Cannot create AWS config sessions: %w", err)
+		return fmt.Errorf("Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create an AWS SSM service client
@@ -233,7 +236,7 @@ func setParamStoreValue(previousDateParamStore string, currentDate string, param
 		Type:      aws.String(paramType),
 	})
 	if err != nil {
-		return fmt.Errorf("[ERROR]: Cannot put SSM Parameter value: %w", err)
+		return fmt.Errorf("Cannot put SSM Parameter value: %w", err)
 	}
 
 	fmt.Printf("Parameter store [%v] type [%v] updated successfully with value [%v]\n", previousDateParamStore, paramType, currentDate)
@@ -248,20 +251,20 @@ func checkSGCount(securityGroupIDs []string, prefixesForWhitelisting []string) e
 
 	if sgAmountProvided < sgAmountNeeded {
 		// fmt.Printf("You will need %d security groups, you porvided %d", sgAmountNeeded, sgAmountProvided)
-		errMsg := fmt.Sprintf("[ERROR]: You will need [%d] Security Groups, you provided [%d]", sgAmountNeeded, sgAmountProvided)
+		errMsg := fmt.Sprintf("You will need [%d] Security Groups, you provided [%d]", sgAmountNeeded, sgAmountProvided)
 		return errors.New(errMsg)
 	}
 
 	return nil
 }
 
-func updateSecurityGroups(securityGroupIDs []string, prefixesForWhitelisting []string) error {
+func updateSecurityGroups(securityGroupIDs []string, prefixesForWhitelisting []string, awsRegion string) error {
 	// Create AWS session with default credentials and region (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("eu-central-1")},
+		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return fmt.Errorf("[ERROR]: Cannot create AWS config sessions: %w", err)
+		return fmt.Errorf("Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create an AWS EC2 service client
@@ -275,7 +278,7 @@ func updateSecurityGroups(securityGroupIDs []string, prefixesForWhitelisting []s
 			fmt.Printf("\nAdding IP range [%v] to Security Group [%v]... \n", prefixesForWhitelisting[indexKey], securityGroup)
 			// Update Security Group with IP Prefix
 			if err := awsUpdateSg(svc, prefixesForWhitelisting[indexKey], securityGroup); err != nil {
-				return fmt.Errorf("ERROR: Cannot update security group: %w", err)
+				return fmt.Errorf("Cannot update security group: %w", err)
 			}
 
 			// Max 50 IP ranges per SG
@@ -288,7 +291,7 @@ func updateSecurityGroups(securityGroupIDs []string, prefixesForWhitelisting []s
 			}
 		}
 	}
-	fmt.Println("Security groups updated")
+	fmt.Println("Security group update finished")
 	return nil
 }
 
@@ -328,13 +331,13 @@ func awsUpdateSg(ec2ClientSvc *ec2.EC2, prefixesForWhitelisting string, security
 	return nil
 }
 
-func describeSecurityGroups(securityGroupIDs []string) error {
+func describeSecurityGroups(securityGroupIDs []string, awsRegion string) error {
 	// Create AWS session with default credentials and region (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("eu-central-1")},
+		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return fmt.Errorf("[ERROR]: Cannot create AWS config sessions: %w", err)
+		return fmt.Errorf("Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create an AWS EC2 service client
