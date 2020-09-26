@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ssm"
 	// "github.com/aws/aws-lambda-go/lambda"
@@ -33,10 +34,12 @@ type Service struct {
 	NetworkBorderGroup string `json:"network_border_group"`
 }
 
+// https://docs.aws.amazon.com/lambda/latest/dg/golang-handler.html
 // func main() {
-//     lambda.Start(Handler)
+//     lambda.Start(LambdaHandler)
 // }
 
+//func LambdaHandler() {}
 func main() {
 	// List of Security groups to be updated
 	securityGroupIDs := []string{"sg-041c5e7daf95e16a3", "sg-00ffabccebd5efda2"}
@@ -50,6 +53,9 @@ func main() {
 
 	// AWS SSM Param Store that hold the last modified date of the JSON file - format "2020-09-18-21-51-15"
 	previousDateParamStore := "lastModifiedDateIPRanges"
+
+	// AWS DynamoDB table to be created that will maintain a list of all whitelisted IP Ranges
+	// dynamoDBTableName := "whitelistedIPRanges"
 
 	// Set AWS Region
 	awsRegion := "eu-central-1"
@@ -197,6 +203,7 @@ func checkIfFileModified(awsServices Services, previousDateParamStore string, aw
 }
 
 func getParamStoreValue(previousDateParamStore string, awsRegion string) (string, error) {
+	// Create AWS session with default credentials (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(awsRegion)},
 	)
@@ -220,6 +227,7 @@ func getParamStoreValue(previousDateParamStore string, awsRegion string) (string
 }
 
 func setParamStoreValue(previousDateParamStore string, currentDate string, paramType string, awsRegion string) error {
+	// Create AWS session with default credentials(in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(awsRegion)},
 	)
@@ -364,6 +372,51 @@ func describeSecurityGroups(securityGroupIDs []string, awsRegion string) error {
 		fmt.Println("\nDescribe Security Group Egress Rules : ")
 		fmt.Println("\n", group)
 	}
+	return nil
+}
+
+func updateDynamoDB(dynamoDBTableName string, inputIPRanges []string, awsRegion string) error {
+	// TODO: - https://docs.aws.amazon.com/sdk-for-go/v1/developer-guide/dynamo-example-create-table.html
+	// Create AWS session with default credentials (in ENV vars)
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(awsRegion)},
+	)
+	if err != nil {
+		return fmt.Errorf("Cannot create AWS config sessions: %w", err)
+	}
+
+	// Create a AWS DynamoDB service client
+	svc := dynamodb.New(sess)
+
+	// Define Input for creating table
+	input := &dynamodb.CreateTableInput{
+		AttributeDefinitions: []*dynamodb.AttributeDefinition{
+			{
+				AttributeName: aws.String(""),
+				AttributeType: aws.String("RANGE"),
+			},
+		},
+		KeySchema: []*dynamodb.KeySchemaElement{
+			{
+				AttributeName: aws.String(""),
+				KeyType:       aws.String("RANGE"),
+			},
+		},
+		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(5),
+			WriteCapacityUnits: aws.Int64(5),
+		},
+		TableName: aws.String(dynamoDBTableName),
+	}
+
+	// Create the DynamoDB table using input
+	_, err = svc.CreateTable(input)
+	if err != nil {
+		return fmt.Errorf("Cannot create AWS config sessions: %v", err.Error())
+	}
+
+	fmt.Println("Created the table", dynamoDBTableName)
+
 	return nil
 }
 

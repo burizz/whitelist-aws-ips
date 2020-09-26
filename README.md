@@ -13,7 +13,7 @@ TODO :
 - [x] Persistent way of storing JSON modified date - SSM Param Store
 - [x] Better error handling
 - [x] Make AWS region configurable
-- [ ] Update only entries that don't exist already
+- [ ] Update only entries that don't exist already - DynamoDB persistence
 - [ ] Implement lambda function handler instead of main
 - [ ] Figure out a good way to link all SGs at the end into a single one - inheritance ?
 
