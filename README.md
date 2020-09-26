@@ -1,4 +1,4 @@
-# AWS IP Ranges - Lambda
+# Whitelist AWS IP Ranges - Lambda
 
 Lambda for whitelisting Amazon IP ranges in Security Group outbound rules
 
