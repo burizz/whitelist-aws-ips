@@ -392,20 +392,17 @@ func createDynamoTable(dynamoTableName string, inputIPRanges []string, awsRegion
 		AttributeDefinitions: []*dynamodb.AttributeDefinition{
 			{
 				AttributeName: aws.String("awsIPRanges"),
-				AttributeType: aws.String("RANGE"),
+				AttributeType: aws.String("S"),
 			},
 		},
 		KeySchema: []*dynamodb.KeySchemaElement{
 			{
 				AttributeName: aws.String("awsIPRanges"),
-				KeyType:       aws.String("RANGE"),
+				KeyType:       aws.String("HASH"),
 			},
 		},
-		ProvisionedThroughput: &dynamodb.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-		TableName: aws.String(dynamoDBTableName),
+		BillingMode: &dynamodb.BillingModePayPerRequest,
+		TableName:   aws.String(dynamoDBTableName),
 	}
 
 	// Create the DynamoDB table using input
@@ -414,11 +411,11 @@ func createDynamoTable(dynamoTableName string, inputIPRanges []string, awsRegion
 		return fmt.Errorf("Cannot create AWS config sessions: %v", err.Error())
 	}
 
-	fmt.Println("Created the table", dynamoDBTableName)
+	fmt.Printf("Successfully create table %v", dynamoDBTableName)
 	return nil
 }
 
-func updateDynamoTable(dynamoTableName string, inputIPRanges []string, awsRegion string) error {
+func putDynamoItem(dynamoTableName string, inputIPRanges []string, awsRegion string) error {
 	// Create AWS session with default credentials (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(awsRegion)},
@@ -431,29 +428,46 @@ func updateDynamoTable(dynamoTableName string, inputIPRanges []string, awsRegion
 	svc := dynamodb.New(sess)
 
 	// Input for Update Dynamo table
-	input := &dynamodb.UpdateItemInput{
-		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
-			":r": {
-				N: aws.String("awsIPRanges"),
+	// Item map[string]*AttributeValue `type:"map" required:"true"`
+	// https://docs.aws.amazon.com/sdk-for-go/api/service/dynamodb/#DynamoDB.PutItem
+	input := &dynamodb.PutItemInput{
+		Item: map[string]*dynamodb.AttributeValue{
+			"awsIPRanges": {
+				S: aws.String("test"),
 			},
 		},
-		TableName: aws.String(dynamoTableName),
-		Key: map[string]*dynamodb.AttributeValue{
-			"Year": {
-				N: aws.String(movieYear),
-			},
-		ReturnValues:     aws.String("UPDATED_NEW"),
-		UpdateExpression: aws.String("set Rating = :r"),
+		ReturnConsumedCapacity: aws.String("TOTAL"),
+		TableName:              aws.String(dynamoTableName),
 	}
 
-	_, err := svc.UpdateItem(input)
+	result, err := svc.PutItem(input)
 	if err != nil {
-		fmt.Println(err.Error())
-		return
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case dynamodb.ErrCodeConditionalCheckFailedException:
+				fmt.Println(dynamodb.ErrCodeConditionalCheckFailedException, aerr.Error())
+			case dynamodb.ErrCodeProvisionedThroughputExceededException:
+				fmt.Println(dynamodb.ErrCodeProvisionedThroughputExceededException, aerr.Error())
+			case dynamodb.ErrCodeResourceNotFoundException:
+				fmt.Println(dynamodb.ErrCodeResourceNotFoundException, aerr.Error())
+			case dynamodb.ErrCodeItemCollectionSizeLimitExceededException:
+				fmt.Println(dynamodb.ErrCodeItemCollectionSizeLimitExceededException, aerr.Error())
+			case dynamodb.ErrCodeTransactionConflictException:
+				fmt.Println(dynamodb.ErrCodeTransactionConflictException, aerr.Error())
+			case dynamodb.ErrCodeRequestLimitExceeded:
+				fmt.Println(dynamodb.ErrCodeRequestLimitExceeded, aerr.Error())
+			case dynamodb.ErrCodeInternalServerError:
+				fmt.Println(dynamodb.ErrCodeInternalServerError, aerr.Error())
+			default:
+				fmt.Println(aerr.Error())
+			}
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			fmt.Println(err.Error())
+		}
 	}
-
-	fmt.Print("Successfully updated table %v", dynamoTableName)
-
+	fmt.Printf("Successfully updated table %v", dynamoTableName)
 	return nil
 }
 
