@@ -375,8 +375,7 @@ func describeSecurityGroups(securityGroupIDs []string, awsRegion string) error {
 	return nil
 }
 
-func updateDynamoDB(dynamoDBTableName string, inputIPRanges []string, awsRegion string) error {
-	// TODO: - https://docs.aws.amazon.com/sdk-for-go/v1/developer-guide/dynamo-example-create-table.html
+func createDynamoTable(dynamoTableName string, inputIPRanges []string, awsRegion string) error {
 	// Create AWS session with default credentials (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(awsRegion)},
@@ -392,13 +391,13 @@ func updateDynamoDB(dynamoDBTableName string, inputIPRanges []string, awsRegion 
 	input := &dynamodb.CreateTableInput{
 		AttributeDefinitions: []*dynamodb.AttributeDefinition{
 			{
-				AttributeName: aws.String(""),
+				AttributeName: aws.String("awsIPRanges"),
 				AttributeType: aws.String("RANGE"),
 			},
 		},
 		KeySchema: []*dynamodb.KeySchemaElement{
 			{
-				AttributeName: aws.String(""),
+				AttributeName: aws.String("awsIPRanges"),
 				KeyType:       aws.String("RANGE"),
 			},
 		},
@@ -416,6 +415,44 @@ func updateDynamoDB(dynamoDBTableName string, inputIPRanges []string, awsRegion 
 	}
 
 	fmt.Println("Created the table", dynamoDBTableName)
+	return nil
+}
+
+func updateDynamoTable(dynamoTableName string, inputIPRanges []string, awsRegion string) error {
+	// Create AWS session with default credentials (in ENV vars)
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(awsRegion)},
+	)
+	if err != nil {
+		return fmt.Errorf("Cannot create AWS config sessions: %w", err)
+	}
+
+	// Create a AWS DynamoDB service client
+	svc := dynamodb.New(sess)
+
+	// Input for Update Dynamo table
+	input := &dynamodb.UpdateItemInput{
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":r": {
+				N: aws.String("awsIPRanges"),
+			},
+		},
+		TableName: aws.String(dynamoTableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			"Year": {
+				N: aws.String(movieYear),
+			},
+		ReturnValues:     aws.String("UPDATED_NEW"),
+		UpdateExpression: aws.String("set Rating = :r"),
+	}
+
+	_, err := svc.UpdateItem(input)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+
+	fmt.Print("Successfully updated table %v", dynamoTableName)
 
 	return nil
 }
