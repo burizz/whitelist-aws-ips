@@ -14,8 +14,8 @@ TODO :
 - [x] Better error handling
 - [x] Make AWS region configurable
 - [ ] Update only entries that don't exist already - DynamoDB persistence
-  - [ ] Create Dynamo table
-  - [ ] Skip if it exists
+  - [ ] Check if Dynamo tble exists; 
+  - [ ] Create Dynamo table if doesn't exist
   - [ ] Add list of IP ranges in Dynamo table
   - [ ] Only update if an entry is missingv
 - [ ] Implement lambda function handler instead of main

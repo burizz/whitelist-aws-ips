@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -52,7 +53,7 @@ func main() {
 	jsonFileLocalPath := "ip-ranges.json"
 
 	// AWS SSM Param Store that hold the last modified date of the JSON file - format "2020-09-18-21-51-15"
-	previousDateParamStore := "lastModifiedDateIPRanges"
+	// previousDateParamStore := "lastModifiedDateIPRanges"
 
 	// AWS DynamoDB table to be created that will maintain a list of all whitelisted IP Ranges
 	dynamoTableName := "whitelistedIPRanges"
@@ -83,17 +84,23 @@ func main() {
 	}
 
 	// Check if AWS JSON file was modified since last run
-	if err := checkIfFileModified(awsServices, previousDateParamStore, awsRegion); err != nil {
-		panic(err)
-	}
+	// if err := checkIfFileModified(awsServices, previousDateParamStore, awsRegion); err != nil {
+	// 	panic(err)
+	// }
 
 	// Create DynamoDB table if it doesn't exist
-	if err := createDynamoTable(dynamoTableName, awsRegion); err != nil {
-		panic(err)
-	}
+	// if err := createDynamoTable(dynamoTableName, awsRegion); err != nil {
+	// 	panic(err)
+	// }
 
-	if err := getDynamoItem(dynamoTableName, awsRegion); err != nil {
-		panic(err)
+	for _, ip := range prefixesForWhitelisting {
+		if ipPresent, err := getDynamoItem(dynamoTableName, ip, awsRegion); err != nil {
+			panic(err)
+		} else if !ipPresent {
+			fmt.Printf("Adding IP : %v", ip)
+		} else {
+			fmt.Printf("IP already present [%v], skipping ...", ip)
+		}
 	}
 
 	// Update DynamoDB table with IP ranges
@@ -102,9 +109,9 @@ func main() {
 	}
 
 	// Update Security Groups
-	if err := updateSecurityGroups(securityGroupIDs, prefixesForWhitelisting, awsRegion); err != nil {
-		panic(err)
-	}
+	// if err := updateSecurityGroups(securityGroupIDs, prefixesForWhitelisting, awsRegion); err != nil {
+	// 	panic(err)
+	// }
 
 	// Describe Security Groups
 	// if err := describeSecurityGroups(securityGroupIDs); err != nil {
@@ -428,13 +435,13 @@ func createDynamoTable(dynamoTableName string, awsRegion string) (err error) {
 	return nil
 }
 
-func getDynamoItem(dynamoTableName string, awsRegion string) error {
+func getDynamoItem(dynamoTableName string, ipRange string, awsRegion string) (ipPresent bool, err error) {
 	// Create AWS session with default credentials (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return fmt.Errorf("Cannot create AWS config sessions: %w", err)
+		return false, fmt.Errorf("Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create a AWS DynamoDB service client
@@ -445,7 +452,7 @@ func getDynamoItem(dynamoTableName string, awsRegion string) error {
 	input := &dynamodb.GetItemInput{
 		Key: map[string]*dynamodb.AttributeValue{
 			"awsIPRanges": {
-				S: aws.String("test"),
+				S: aws.String(ipRange),
 			},
 		},
 		TableName: aws.String(dynamoTableName),
@@ -471,10 +478,22 @@ func getDynamoItem(dynamoTableName string, awsRegion string) error {
 			// Message from an error.
 			fmt.Println(err.Error())
 		}
-		return err
+		return false, err
 	}
+	fmt.Println("Result of getDynamoItem : ")
 	fmt.Println(result)
-	return nil
+
+	str1 := `{
+		Item: {
+		  awsIPRanges: {   
+			S: "3.255.0.0/16"
+		  }
+		}
+	  }`
+
+	re := regexp.MustCompile(`(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}`)
+	fmt.Println(re.MatchString(str1)) // true
+	return re.MatchString(str1), nil
 }
 
 func putDynamoItem(dynamoTableName string, inputIPRanges []string, awsRegion string) error {
