@@ -5,21 +5,25 @@ Lambda for whitelisting Amazon IP ranges in Security Group outbound rules
 Works by updating Security Group Egress rules with a list of AWS IP Ranges based on AWS Service Nam.
 Pulls latest JSON from - https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html
 
-This is still work in progress : 
-TODO :
+This is still a work in progress : 
+
 - [x] Download Amazon IP range file and parse JSON data structure
 - [x] Update list of IP ranges in Security Groups / Describe Security Groups
 - [x] Work around SG limit of 60 inbound/outbound rules
 - [x] Persistent way of storing JSON modified date - SSM Param Store
 - [x] Better error handling
 - [x] Make AWS region configurable
-- [ ] Update only entries that don't exist already - DynamoDB persistence
+- [x] Update only entries that don't exist already - DynamoDB persistence
   - [x] Check if DynamoDB table exists; 
   - [x] Create DynamoDB table if doesn't exist
   - [x] Add list of IP ranges in DynamoDB table
   - [x] Only update if an entry is missing
-  - [ ] Create list of IPs to be added in SG from DynamoDB Table
+  - [x] Create list of IPs to be added in SG from DynamoDB Table
+- [ ] Fix bug with security group updates when IPs are less than 50 (they get duplicated in all SGs)
+  - Potentially provide fail when more than 1 SG is provided to cover this case
+- [ ] Improve grouping of all functions in Main
 - [ ] Implement lambda function handler instead of main
+- [ ] Create SSM param store if it doesnt exist
 - [ ] Figure out a good way to link all SGs at the end into a single one - inheritance ?
 
 ### Go Dependencies

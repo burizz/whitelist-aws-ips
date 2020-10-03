@@ -53,7 +53,7 @@ func main() {
 	jsonFileLocalPath := "ip-ranges.json"
 
 	// AWS SSM Param Store that hold the last modified date of the JSON file - format "2020-09-18-21-51-15"
-	// previousDateParamStore := "lastModifiedDateIPRanges"
+	previousDateParamStore := "lastModifiedDateIPRanges"
 
 	// AWS DynamoDB table to be created that will maintain a list of all whitelisted IP Ranges
 	dynamoTableName := "whitelistedIPRanges"
@@ -62,57 +62,65 @@ func main() {
 	awsRegion := "eu-central-1"
 
 	// Download JSON file
-	if err := downloadFile(jsonFileLocalPath, amazonIPRangesURL); err != nil {
-		panic(err)
+	jsonDownloadErr := downloadFile(jsonFileLocalPath, amazonIPRangesURL)
+	if jsonDownloadErr != nil {
+		panic(jsonDownloadErr)
 	}
 
 	// Parse JSON file into Services data structure
-	awsServices, err := parseJSONFile(jsonFileLocalPath)
-	if err != nil {
-		panic(err)
+	awsServices, jsonParseErr := parseJSONFile(jsonFileLocalPath)
+	if jsonParseErr != nil {
+		panic(jsonParseErr)
 	}
 
 	// Get IP ranges (/16) of all AWS Services that need to be whitelisted
-	prefixesForWhitelisting, err := parseIPRanges(awsServices, servicesToBeWhitelist)
-	if err != nil {
-		panic(err)
+	prefixesForWhitelisting, ipParseErr := parseIPRanges(awsServices, servicesToBeWhitelist)
+	if ipParseErr != nil {
+		panic(ipParseErr)
 	}
 
 	// Check how many SGs we need
-	if err := checkSGCount(securityGroupIDs, prefixesForWhitelisting); err != nil {
-		panic(err)
+	sgCheckErr := checkSGCount(securityGroupIDs, prefixesForWhitelisting)
+	if sgCheckErr != nil {
+		panic(sgCheckErr)
 	}
 
 	// Check if AWS JSON file was modified since last run
-	// if err := checkIfFileModified(awsServices, previousDateParamStore, awsRegion); err != nil {
-	// 	panic(err)
-	// }
+	jsonModifiedErr := checkIfFileModified(awsServices, previousDateParamStore, awsRegion)
+	if jsonModifiedErr != nil {
+		panic(jsonModifiedErr)
+	}
 
 	// Check if Dynamo table exists
-	fmt.Println("checking if DynamoDB table exists")
-	if tablexists, err := describeDynamoTable(dynamoTableName, awsRegion); err != nil {
-		panic(err)
+	fmt.Println("Checking if DynamoDB table exists ...")
+	tablexists, dbDescribeErr := describeDynamoTable(dynamoTableName, awsRegion)
+	if dbDescribeErr != nil {
+		panic(dbDescribeErr)
 	} else if !tablexists {
-		// If it doesn't exist create it
-		if err := createDynamoTable(dynamoTableName, awsRegion); err != nil {
-			panic(err)
+		fmt.Printf("Table [%v] does not exist", dynamoTableName)
+		dbCreateErr := createDynamoTable(dynamoTableName, awsRegion)
+		if dbCreateErr != nil {
+			panic(dbCreateErr)
 		}
 	}
 
 	var newIPCounter int
+	var newIPRanges []string
 
-	fmt.Println("checking if any new IP Ranges need to be whitelisted ...")
+	fmt.Println("Checking if any new IP Ranges need to be whitelisted ...")
 	for _, ip := range prefixesForWhitelisting {
 		// Check if IP Ranges are already whitelsited
-		ipPresent, err := getDynamoItem(dynamoTableName, ip, awsRegion)
-		if err != nil {
-			panic(err)
+		ipPresent, dbGetErr := getDynamoItem(dynamoTableName, ip, awsRegion)
+		if dbGetErr != nil {
+			panic(dbGetErr)
 		}
 		if !ipPresent {
 			// Update DynamoDB table with IP range that is to be whitelisted
-			if err := putDynamoItem(dynamoTableName, ip, awsRegion); err != nil {
-				panic(err)
+			dbPutErr := putDynamoItem(dynamoTableName, ip, awsRegion)
+			if dbPutErr != nil {
+				panic(dbPutErr)
 			}
+			newIPRanges = append(newIPRanges, ip)
 			newIPCounter++
 		}
 	}
@@ -123,15 +131,17 @@ func main() {
 		fmt.Println("No new IP ranges found, exiting ...")
 	}
 
-	// Update Security Groups
-	// if err := updateSecurityGroups(securityGroupIDs, prefixesForWhitelisting, awsRegion); err != nil {
-	// 	panic(err)
-	// }
+	// Update Security Groups Egress rules
+	updateSGErr := updateSecurityGroups(securityGroupIDs, newIPRanges, awsRegion)
+	if updateSGErr != nil {
+		panic(updateSGErr)
+	}
 
-	// Describe Security Groups
-	// if err := describeSecurityGroups(securityGroupIDs); err != nil {
-	// 	panic(err)
-	// }
+	// Describe Security Group Egress rules
+	describeSGErr := describeSecurityGroups(securityGroupIDs, awsRegion)
+	if describeSGErr != nil {
+		panic(describeSGErr)
+	}
 }
 
 func downloadFile(downloadPath, amazonIPRangesURL string) error {
@@ -275,7 +285,7 @@ func setParamStoreValue(previousDateParamStore string, currentDate string, param
 
 	// Create an AWS SSM service client
 	ssmService := ssm.New(sess, aws.NewConfig())
-	paramKey, err := ssmService.PutParameter(&ssm.PutParameterInput{
+	_, err = ssmService.PutParameter(&ssm.PutParameterInput{
 		Name:      aws.String(previousDateParamStore),
 		Value:     aws.String(currentDate),
 		Overwrite: aws.Bool(true),
@@ -286,7 +296,6 @@ func setParamStoreValue(previousDateParamStore string, currentDate string, param
 	}
 
 	fmt.Printf("Parameter store [%v] type [%v] updated successfully with value [%v]\n", previousDateParamStore, paramType, currentDate)
-	fmt.Println(paramKey)
 	return nil
 }
 
@@ -306,7 +315,7 @@ func checkSGCount(securityGroupIDs []string, prefixesForWhitelisting []string) e
 	return nil
 }
 
-func updateSecurityGroups(securityGroupIDs []string, prefixesForWhitelisting []string, awsRegion string) error {
+func updateSecurityGroups(securityGroupIDs []string, newIPRanges []string, awsRegion string) error {
 	// Create AWS session with default credentials and region (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(awsRegion)},
@@ -322,10 +331,10 @@ func updateSecurityGroups(securityGroupIDs []string, prefixesForWhitelisting []s
 
 	for _, securityGroup := range securityGroupIDs {
 		// Go over each IP range and add it in SG
-		for indexKey := range prefixesForWhitelisting {
-			fmt.Printf("\nAdding IP range [%v] to Security Group [%v]... \n", prefixesForWhitelisting[indexKey], securityGroup)
+		for indexKey := range newIPRanges {
+			fmt.Printf("\nAdding IP range [%v] to Security Group [%v]... \n", newIPRanges[indexKey], securityGroup)
 			// Update Security Group with IP Prefix
-			if err := awsUpdateSg(svc, prefixesForWhitelisting[indexKey], securityGroup); err != nil {
+			if err := awsUpdateSg(svc, newIPRanges[indexKey], securityGroup); err != nil {
 				return fmt.Errorf("updateSecurityGroups: Cannot update security group: %w", err)
 			}
 
@@ -343,7 +352,7 @@ func updateSecurityGroups(securityGroupIDs []string, prefixesForWhitelisting []s
 	return nil
 }
 
-func awsUpdateSg(ec2ClientSvc *ec2.EC2, prefixesForWhitelisting string, securityGroup string) error {
+func awsUpdateSg(ec2ClientSvc *ec2.EC2, ipForWhitelist string, securityGroup string) error {
 	// Define Egress rule Input
 	input := &ec2.AuthorizeSecurityGroupEgressInput{
 		GroupId: aws.String(securityGroup),
@@ -354,7 +363,7 @@ func awsUpdateSg(ec2ClientSvc *ec2.EC2, prefixesForWhitelisting string, security
 				IpProtocol: aws.String("tcp"),
 				IpRanges: []*ec2.IpRange{
 					{
-						CidrIp: aws.String(prefixesForWhitelisting),
+						CidrIp: aws.String(ipForWhitelist),
 					},
 				},
 			},
@@ -521,22 +530,22 @@ func getDynamoItem(dynamoTableName string, ipRange string, awsRegion string) (ip
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			case dynamodb.ErrCodeProvisionedThroughputExceededException:
-				return false, fmt.Errorf("getDynamoItem: %v", err)
+				return true, fmt.Errorf("getDynamoItem: %v", err)
 			case dynamodb.ErrCodeResourceNotFoundException:
-				return false, fmt.Errorf("getDynamoItem: %v", err)
+				return true, nil
 			case dynamodb.ErrCodeRequestLimitExceeded:
-				return false, fmt.Errorf("getDynamoItem: %v", err)
+				return true, fmt.Errorf("getDynamoItem: %v", err)
 			case dynamodb.ErrCodeInternalServerError:
-				return false, fmt.Errorf("getDynamoItem: %v", err)
+				return true, fmt.Errorf("getDynamoItem: %v", err)
 			default:
-				return false, fmt.Errorf("getDynamoItem: %v", err)
+				return true, fmt.Errorf("getDynamoItem: %v", err)
 			}
 		} else {
 			// Print the error, cast err to awserr.Error to get the Code and
 			// Message from an error.
 			fmt.Println(err.Error())
 		}
-		return false, err
+		return true, err
 	}
 
 	stringResult := result.GoString()
