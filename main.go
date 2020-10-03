@@ -93,19 +93,26 @@ func main() {
 	// 	panic(err)
 	// }
 
+	var newIPCounter int
+
+	fmt.Println("Checking if any new IP Ranges need to be whitelisted ...")
 	for _, ip := range prefixesForWhitelisting {
+		// Check if IP Ranges are already whitelsited
 		if ipPresent, err := getDynamoItem(dynamoTableName, ip, awsRegion); err != nil {
 			panic(err)
+			newIPCounter++
 		} else if !ipPresent {
-			fmt.Printf("Adding IP : %v", ip)
-		} else {
-			fmt.Printf("IP already present [%v], skipping ...", ip)
+			// Update DynamoDB table with IP range that is to be whitelisted
+			if err := putDynamoItem(dynamoTableName, ip, awsRegion); err != nil {
+				panic(err)
+			}
 		}
 	}
 
-	// Update DynamoDB table with IP ranges
-	if err := putDynamoItem(dynamoTableName, prefixesForWhitelisting, awsRegion); err != nil {
-		panic(err)
+	if newIPCounter > 0 {
+		fmt.Printf("Successfully updated table %v", dynamoTableName)
+	} else if newIPCounter < 0 {
+		fmt.Println("No new IP ranges found")
 	}
 
 	// Update Security Groups
@@ -480,23 +487,17 @@ func getDynamoItem(dynamoTableName string, ipRange string, awsRegion string) (ip
 		}
 		return false, err
 	}
-	fmt.Println("Result of getDynamoItem : ")
-	fmt.Println(result)
 
-	str1 := `{
-		Item: {
-		  awsIPRanges: {   
-			S: "3.255.0.0/16"
-		  }
-		}
-	  }`
+	stringResult := result.GoString()
 
+	// Regex to match IP address
 	re := regexp.MustCompile(`(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}`)
-	fmt.Println(re.MatchString(str1)) // true
-	return re.MatchString(str1), nil
+
+	// Return true if IP Range already in Dynamo table
+	return re.MatchString(stringResult), nil
 }
 
-func putDynamoItem(dynamoTableName string, inputIPRanges []string, awsRegion string) error {
+func putDynamoItem(dynamoTableName string, ipRange string, awsRegion string) error {
 	// Create AWS session with default credentials (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(awsRegion)},
@@ -511,47 +512,46 @@ func putDynamoItem(dynamoTableName string, inputIPRanges []string, awsRegion str
 	// Input for Dynamo Put Item operation
 	// Item map[string]*AttributeValue `type:"map" required:"true"`
 	// https://docs.aws.amazon.com/sdk-for-go/api/service/dynamodb/#DynamoDB.PutItem
-	for _, item := range inputIPRanges {
-		input := &dynamodb.PutItemInput{
-			Item: map[string]*dynamodb.AttributeValue{
-				"awsIPRanges": {
-					S: aws.String(item),
-				},
+	input := &dynamodb.PutItemInput{
+		Item: map[string]*dynamodb.AttributeValue{
+			"awsIPRanges": {
+				S: aws.String(ipRange),
 			},
-			ReturnConsumedCapacity: aws.String("TOTAL"),
-			TableName:              aws.String(dynamoTableName),
-		}
-
-		_, err := svc.PutItem(input)
-		if err != nil {
-			if aerr, ok := err.(awserr.Error); ok {
-				switch aerr.Code() {
-				case dynamodb.ErrCodeConditionalCheckFailedException:
-					fmt.Println(dynamodb.ErrCodeConditionalCheckFailedException, aerr.Error())
-				case dynamodb.ErrCodeProvisionedThroughputExceededException:
-					fmt.Println(dynamodb.ErrCodeProvisionedThroughputExceededException, aerr.Error())
-				case dynamodb.ErrCodeResourceNotFoundException:
-					fmt.Println(dynamodb.ErrCodeResourceNotFoundException, aerr.Error())
-				case dynamodb.ErrCodeItemCollectionSizeLimitExceededException:
-					fmt.Println(dynamodb.ErrCodeItemCollectionSizeLimitExceededException, aerr.Error())
-				case dynamodb.ErrCodeTransactionConflictException:
-					fmt.Println(dynamodb.ErrCodeTransactionConflictException, aerr.Error())
-				case dynamodb.ErrCodeRequestLimitExceeded:
-					fmt.Println(dynamodb.ErrCodeRequestLimitExceeded, aerr.Error())
-				case dynamodb.ErrCodeInternalServerError:
-					fmt.Println(dynamodb.ErrCodeInternalServerError, aerr.Error())
-				default:
-					fmt.Println(aerr.Error())
-				}
-			} else {
-				// Print the error, cast err to awserr.Error to get the Code and
-				// Message from an error.
-				fmt.Println(err.Error())
-			}
-			return err
-		}
+		},
+		ReturnConsumedCapacity: aws.String("TOTAL"),
+		TableName:              aws.String(dynamoTableName),
 	}
-	fmt.Printf("Successfully updated table %v", dynamoTableName)
+	result, err := svc.PutItem(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case dynamodb.ErrCodeConditionalCheckFailedException:
+				fmt.Println(dynamodb.ErrCodeConditionalCheckFailedException, aerr.Error())
+			case dynamodb.ErrCodeProvisionedThroughputExceededException:
+				fmt.Println(dynamodb.ErrCodeProvisionedThroughputExceededException, aerr.Error())
+			case dynamodb.ErrCodeResourceNotFoundException:
+				fmt.Println(dynamodb.ErrCodeResourceNotFoundException, aerr.Error())
+			case dynamodb.ErrCodeItemCollectionSizeLimitExceededException:
+				fmt.Println(dynamodb.ErrCodeItemCollectionSizeLimitExceededException, aerr.Error())
+			case dynamodb.ErrCodeTransactionConflictException:
+				fmt.Println(dynamodb.ErrCodeTransactionConflictException, aerr.Error())
+			case dynamodb.ErrCodeRequestLimitExceeded:
+				fmt.Println(dynamodb.ErrCodeRequestLimitExceeded, aerr.Error())
+			case dynamodb.ErrCodeInternalServerError:
+				fmt.Println(dynamodb.ErrCodeInternalServerError, aerr.Error())
+			default:
+				fmt.Println(aerr.Error())
+			}
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			fmt.Println(err.Error())
+		}
+		return err
+	}
+
+	fmt.Println(result)
+	fmt.Printf("Adding IP in Dynamo table : %v\n", ipRange)
 	return nil
 }
 
