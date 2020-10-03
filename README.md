@@ -1,6 +1,7 @@
 # Whitelist AWS IP Ranges - Lambda
 
 Lambda for whitelisting Amazon IP ranges in Security Group outbound rules
+This is written in Golang as coding practice (for the most part)
 
 Works by updating Security Group Egress rules with a list of AWS IP Ranges based on AWS Service Nam.
 Pulls latest JSON from - https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html
