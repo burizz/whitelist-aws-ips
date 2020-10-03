@@ -14,10 +14,11 @@ TODO :
 - [x] Better error handling
 - [x] Make AWS region configurable
 - [ ] Update only entries that don't exist already - DynamoDB persistence
-  - [ ] Check if Dynamo tble exists; 
-  - [ ] Create Dynamo table if doesn't exist
-  - [ ] Add list of IP ranges in Dynamo table
-  - [ ] Only update if an entry is missingv
+  - [x] Check if DynamoDB table exists; 
+  - [x] Create DynamoDB table if doesn't exist
+  - [x] Add list of IP ranges in DynamoDB table
+  - [x] Only update if an entry is missing
+  - [ ] Create list of IPs to be added in SG from DynamoDB Table
 - [ ] Implement lambda function handler instead of main
 - [ ] Figure out a good way to link all SGs at the end into a single one - inheritance ?
 

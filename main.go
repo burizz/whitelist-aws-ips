@@ -88,31 +88,39 @@ func main() {
 	// 	panic(err)
 	// }
 
-	// Create DynamoDB table if it doesn't exist
-	// if err := createDynamoTable(dynamoTableName, awsRegion); err != nil {
-	// 	panic(err)
-	// }
+	// Check if Dynamo table exists
+	fmt.Println("checking if DynamoDB table exists")
+	if tablexists, err := describeDynamoTable(dynamoTableName, awsRegion); err != nil {
+		panic(err)
+	} else if !tablexists {
+		// If it doesn't exist create it
+		if err := createDynamoTable(dynamoTableName, awsRegion); err != nil {
+			panic(err)
+		}
+	}
 
 	var newIPCounter int
 
-	fmt.Println("Checking if any new IP Ranges need to be whitelisted ...")
+	fmt.Println("checking if any new IP Ranges need to be whitelisted ...")
 	for _, ip := range prefixesForWhitelisting {
 		// Check if IP Ranges are already whitelsited
-		if ipPresent, err := getDynamoItem(dynamoTableName, ip, awsRegion); err != nil {
+		ipPresent, err := getDynamoItem(dynamoTableName, ip, awsRegion)
+		if err != nil {
 			panic(err)
-			newIPCounter++
-		} else if !ipPresent {
+		}
+		if !ipPresent {
 			// Update DynamoDB table with IP range that is to be whitelisted
 			if err := putDynamoItem(dynamoTableName, ip, awsRegion); err != nil {
 				panic(err)
 			}
+			newIPCounter++
 		}
 	}
 
 	if newIPCounter > 0 {
 		fmt.Printf("Successfully updated table %v", dynamoTableName)
-	} else if newIPCounter < 0 {
-		fmt.Println("No new IP ranges found")
+	} else if newIPCounter == 0 {
+		fmt.Println("No new IP ranges found, exiting ...")
 	}
 
 	// Update Security Groups
@@ -130,21 +138,21 @@ func downloadFile(downloadPath, amazonIPRangesURL string) error {
 	// Get data
 	resp, err := http.Get(amazonIPRangesURL)
 	if err != nil {
-		return fmt.Errorf("Cannot open remote URL: %w", err)
+		return fmt.Errorf("downloadFile: Cannot open remote URL: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Create file
 	out, err := os.Create(downloadPath)
 	if err != nil {
-		return fmt.Errorf("Cannot create local file: %w", err)
+		return fmt.Errorf("downloadFile: Cannot create local file: %w", err)
 	}
 	defer out.Close()
 
 	// Write body to file
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
-		return fmt.Errorf("Cannot write Response Body to file: %w", err)
+		return fmt.Errorf("downloadFile: Cannot write Response Body to file: %w", err)
 	}
 
 	fmt.Println("Successfully downloaded: " + amazonIPRangesURL)
@@ -158,7 +166,7 @@ func parseJSONFile(jsonFilePath string) (Services, error) {
 	// Open JSON file
 	jsonFile, err := os.Open(jsonFilePath)
 	if err != nil {
-		return awsServices, fmt.Errorf("Cannot open JSON file: %w", err)
+		return awsServices, fmt.Errorf("parseJSONFile: Cannot open JSON file: %w", err)
 	}
 
 	fmt.Println("Successfully opened: " + jsonFilePath)
@@ -167,11 +175,11 @@ func parseJSONFile(jsonFilePath string) (Services, error) {
 	// Read JSON file as byte array
 	byteValue, err := ioutil.ReadAll(jsonFile)
 	if err != nil {
-		return awsServices, fmt.Errorf("Cannot read JSON file as byte array: %w", err)
+		return awsServices, fmt.Errorf("parseJSONFile: Cannot read JSON file as byte array: %w", err)
 	}
 	// Unmarshal byte array into ipRanges data structure
 	if err := json.Unmarshal(byteValue, &awsServices); err != nil {
-		return awsServices, fmt.Errorf("Cannot Unmarshal JSON into awsService data structure: %w", err)
+		return awsServices, fmt.Errorf("parseJSONFile: Cannot Unmarshal JSON into awsService data structure: %w", err)
 	}
 
 	fmt.Println("JSON file parsed")
@@ -198,7 +206,7 @@ func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, e
 	}
 
 	if len(prefixesForWhitelisting) <= 0 {
-		return prefixesForWhitelisting, fmt.Errorf("No IP ranges added in list")
+		return prefixesForWhitelisting, fmt.Errorf("parseIPRanges: No IP ranges added in list")
 	}
 
 	fmt.Printf("Amount of IP Ranges to be whitelisted [%v]", len(prefixesForWhitelisting))
@@ -206,11 +214,13 @@ func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, e
 	return prefixesForWhitelisting, nil
 }
 
+// SSM Param Store Functions //
+
 func checkIfFileModified(awsServices Services, previousDateParamStore string, awsRegion string) error {
 	// Check if the AWS JSON file was modified since last run
 	previousDate, err := getParamStoreValue(previousDateParamStore, awsRegion)
 	if err != nil {
-		return fmt.Errorf("Cannot get SSM Parameter store: %w", err)
+		return fmt.Errorf("checkIfFileModified: Cannot get SSM Parameter store: %w", err)
 	}
 
 	// Type of SSM parameter - String | StringList | SecureString
@@ -236,7 +246,7 @@ func getParamStoreValue(previousDateParamStore string, awsRegion string) (string
 		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return previousDateParamStore, fmt.Errorf("Cannot create AWS config sessions: %w", err)
+		return previousDateParamStore, fmt.Errorf("getParamStoreValue: Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create an AWS SSM service client
@@ -247,7 +257,7 @@ func getParamStoreValue(previousDateParamStore string, awsRegion string) (string
 		WithDecryption: aws.Bool(false),
 	})
 	if err != nil {
-		return previousDateParamStore, fmt.Errorf("Get SSM Parameter: %w", err)
+		return previousDateParamStore, fmt.Errorf("getParamStoreValue: Get SSM Parameter: %w", err)
 	}
 	paramValue := *paramKey.Parameter.Value
 	fmt.Println(paramValue)
@@ -260,7 +270,7 @@ func setParamStoreValue(previousDateParamStore string, currentDate string, param
 		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return fmt.Errorf("Cannot create AWS config sessions: %w", err)
+		return fmt.Errorf("setParamStoreValue: Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create an AWS SSM service client
@@ -272,13 +282,15 @@ func setParamStoreValue(previousDateParamStore string, currentDate string, param
 		Type:      aws.String(paramType),
 	})
 	if err != nil {
-		return fmt.Errorf("Cannot put SSM Parameter value: %w", err)
+		return fmt.Errorf("setParamStoreValue: Cannot put SSM Parameter value: %w", err)
 	}
 
 	fmt.Printf("Parameter store [%v] type [%v] updated successfully with value [%v]\n", previousDateParamStore, paramType, currentDate)
 	fmt.Println(paramKey)
 	return nil
 }
+
+// Security Group Functions //
 
 func checkSGCount(securityGroupIDs []string, prefixesForWhitelisting []string) error {
 	// Calculate how many SGs are needed to fit all IP Prefixes
@@ -287,7 +299,7 @@ func checkSGCount(securityGroupIDs []string, prefixesForWhitelisting []string) e
 
 	if sgAmountProvided < sgAmountNeeded {
 		// fmt.Printf("You will need %d security groups, you porvided %d", sgAmountNeeded, sgAmountProvided)
-		errMsg := fmt.Sprintf("You will need [%d] Security Groups, you provided [%d]", sgAmountNeeded, sgAmountProvided)
+		errMsg := fmt.Sprintf("checkSGCount: You will need [%d] Security Groups, you provided [%d]", sgAmountNeeded, sgAmountProvided)
 		return errors.New(errMsg)
 	}
 
@@ -300,7 +312,7 @@ func updateSecurityGroups(securityGroupIDs []string, prefixesForWhitelisting []s
 		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return fmt.Errorf("Cannot create AWS config sessions: %w", err)
+		return fmt.Errorf("updateSecurityGroups: Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create an AWS EC2 service client
@@ -314,12 +326,12 @@ func updateSecurityGroups(securityGroupIDs []string, prefixesForWhitelisting []s
 			fmt.Printf("\nAdding IP range [%v] to Security Group [%v]... \n", prefixesForWhitelisting[indexKey], securityGroup)
 			// Update Security Group with IP Prefix
 			if err := awsUpdateSg(svc, prefixesForWhitelisting[indexKey], securityGroup); err != nil {
-				return fmt.Errorf("Cannot update security group: %w", err)
+				return fmt.Errorf("updateSecurityGroups: Cannot update security group: %w", err)
 			}
 
 			// Max 50 IP ranges per SG
 			if counter >= 50 {
-				fmt.Printf("Security group %v full, moving to next one", securityGroup)
+				fmt.Printf("updateSecurityGroups: Security group %v full, moving to next one", securityGroup)
 				counter = 0
 				break
 			} else {
@@ -355,7 +367,7 @@ func awsUpdateSg(ec2ClientSvc *ec2.EC2, prefixesForWhitelisting string, security
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			default:
-				fmt.Println(aerr.Error())
+				return fmt.Errorf("awsUpdateSg: %v", aerr)
 			}
 		} else {
 			// Print the error, cast err to awserr.Error to get the Code and Message from an error.
@@ -373,7 +385,7 @@ func describeSecurityGroups(securityGroupIDs []string, awsRegion string) error {
 		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return fmt.Errorf("Cannot create AWS config sessions: %w", err)
+		return fmt.Errorf("describeSecurityGroups: Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create an AWS EC2 service client
@@ -389,10 +401,10 @@ func describeSecurityGroups(securityGroupIDs []string, awsRegion string) error {
 			case "InvalidGroupId.Malformed":
 				fallthrough
 			case "InvalidGroup.NotFound":
-				exitErrorf("%s.", aerr.Message())
+				exitErrorf("describeSecurityGroups: %s.", aerr.Message())
 			}
 		}
-		exitErrorf("Unable to get descriptions for security groups, %v", err)
+		exitErrorf("describeSecurityGroups: Unable to get descriptions for security groups, %v", err)
 	}
 
 	// Display each security group
@@ -403,13 +415,52 @@ func describeSecurityGroups(securityGroupIDs []string, awsRegion string) error {
 	return nil
 }
 
+// DynamoDB Functions //
+
+func describeDynamoTable(dynamoTableName string, awsRegion string) (tableExists bool, err error) {
+	// Create AWS session with default credentials (in ENV vars)
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(awsRegion)},
+	)
+	if err != nil {
+		return false, fmt.Errorf("describeDynamoTable: Cannot create AWS config sessions: %w", err)
+	}
+
+	// Create a AWS DynamoDB service client
+	svc := dynamodb.New(sess)
+
+	input := &dynamodb.DescribeTableInput{
+		TableName: aws.String(dynamoTableName),
+	}
+
+	result, err := svc.DescribeTable(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case dynamodb.ErrCodeResourceNotFoundException:
+				return false, nil
+			case dynamodb.ErrCodeInternalServerError:
+				return true, fmt.Errorf("describeDynamoTable: %v", err)
+			default:
+				return true, fmt.Errorf("describeDynamoTable: %v", err)
+			}
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			fmt.Println(err.Error())
+		}
+	}
+	fmt.Println(result)
+	return true, nil
+}
+
 func createDynamoTable(dynamoTableName string, awsRegion string) (err error) {
 	// Create AWS session with default credentials (in ENV vars)
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return fmt.Errorf("Cannot create AWS config sessions: %w", err)
+		return fmt.Errorf("createDynamoTable: Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create a AWS DynamoDB service client
@@ -436,9 +487,9 @@ func createDynamoTable(dynamoTableName string, awsRegion string) (err error) {
 	// Create the DynamoDB table using input
 	_, err = svc.CreateTable(input)
 	if err != nil {
-		return fmt.Errorf("Cannot create DynamoDB table: %v", err.Error())
+		return fmt.Errorf("createDynamoTable: Cannot create DynamoDB table: %v", err.Error())
 	}
-	fmt.Printf("Successfully create table %v", dynamoTableName)
+	fmt.Printf("createDynamoTable: Successfully create table [%v]\n", dynamoTableName)
 	return nil
 }
 
@@ -448,7 +499,7 @@ func getDynamoItem(dynamoTableName string, ipRange string, awsRegion string) (ip
 		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return false, fmt.Errorf("Cannot create AWS config sessions: %w", err)
+		return false, fmt.Errorf("getDynamoItem: Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create a AWS DynamoDB service client
@@ -470,15 +521,15 @@ func getDynamoItem(dynamoTableName string, ipRange string, awsRegion string) (ip
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			case dynamodb.ErrCodeProvisionedThroughputExceededException:
-				fmt.Println(dynamodb.ErrCodeProvisionedThroughputExceededException, aerr.Error())
+				return false, fmt.Errorf("getDynamoItem: %v", err)
 			case dynamodb.ErrCodeResourceNotFoundException:
-				fmt.Println(dynamodb.ErrCodeResourceNotFoundException, aerr.Error())
+				return false, fmt.Errorf("getDynamoItem: %v", err)
 			case dynamodb.ErrCodeRequestLimitExceeded:
-				fmt.Println(dynamodb.ErrCodeRequestLimitExceeded, aerr.Error())
+				return false, fmt.Errorf("getDynamoItem: %v", err)
 			case dynamodb.ErrCodeInternalServerError:
-				fmt.Println(dynamodb.ErrCodeInternalServerError, aerr.Error())
+				return false, fmt.Errorf("getDynamoItem: %v", err)
 			default:
-				fmt.Println(aerr.Error())
+				return false, fmt.Errorf("getDynamoItem: %v", err)
 			}
 		} else {
 			// Print the error, cast err to awserr.Error to get the Code and
@@ -503,14 +554,13 @@ func putDynamoItem(dynamoTableName string, ipRange string, awsRegion string) err
 		Region: aws.String(awsRegion)},
 	)
 	if err != nil {
-		return fmt.Errorf("Cannot create AWS config sessions: %w", err)
+		return fmt.Errorf("putDynamoItem: Cannot create AWS config sessions: %w", err)
 	}
 
 	// Create a AWS DynamoDB service client
 	svc := dynamodb.New(sess)
 
 	// Input for Dynamo Put Item operation
-	// Item map[string]*AttributeValue `type:"map" required:"true"`
 	// https://docs.aws.amazon.com/sdk-for-go/api/service/dynamodb/#DynamoDB.PutItem
 	input := &dynamodb.PutItemInput{
 		Item: map[string]*dynamodb.AttributeValue{
@@ -521,39 +571,15 @@ func putDynamoItem(dynamoTableName string, ipRange string, awsRegion string) err
 		ReturnConsumedCapacity: aws.String("TOTAL"),
 		TableName:              aws.String(dynamoTableName),
 	}
-	result, err := svc.PutItem(input)
-	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			case dynamodb.ErrCodeConditionalCheckFailedException:
-				fmt.Println(dynamodb.ErrCodeConditionalCheckFailedException, aerr.Error())
-			case dynamodb.ErrCodeProvisionedThroughputExceededException:
-				fmt.Println(dynamodb.ErrCodeProvisionedThroughputExceededException, aerr.Error())
-			case dynamodb.ErrCodeResourceNotFoundException:
-				fmt.Println(dynamodb.ErrCodeResourceNotFoundException, aerr.Error())
-			case dynamodb.ErrCodeItemCollectionSizeLimitExceededException:
-				fmt.Println(dynamodb.ErrCodeItemCollectionSizeLimitExceededException, aerr.Error())
-			case dynamodb.ErrCodeTransactionConflictException:
-				fmt.Println(dynamodb.ErrCodeTransactionConflictException, aerr.Error())
-			case dynamodb.ErrCodeRequestLimitExceeded:
-				fmt.Println(dynamodb.ErrCodeRequestLimitExceeded, aerr.Error())
-			case dynamodb.ErrCodeInternalServerError:
-				fmt.Println(dynamodb.ErrCodeInternalServerError, aerr.Error())
-			default:
-				fmt.Println(aerr.Error())
-			}
-		} else {
-			// Print the error, cast err to awserr.Error to get the Code and
-			// Message from an error.
-			fmt.Println(err.Error())
-		}
-		return err
+	if _, err := svc.PutItem(input); err != nil {
+		return fmt.Errorf("putDynamoItem: Unable to put Item in DynamoDB : %v", err)
 	}
 
-	fmt.Println(result)
 	fmt.Printf("Adding IP in Dynamo table : %v\n", ipRange)
 	return nil
 }
+
+// Helpers //
 
 func exitErrorf(msg string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, msg+"\n", args...)
