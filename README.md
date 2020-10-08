@@ -21,13 +21,13 @@ This is still a work in progress :
   - [x] Add list of IP ranges in DynamoDB table
   - [x] Only update if an entry is missing
   - [x] Create list of IPs to be added in SG from DynamoDB Table
-- [ ] Fix bug with security group updates when IPs are less than 50 (they get duplicated in all SGs)
-  - Potentially provide fail when more than 1 SG is provided to cover this case
-- [ ] Improve grouping of all functions in Main
 - [ ] Implement lambda function handler instead of main
 - [ ] Create SSM param store if it doesnt exist
 - [ ] Figure out a good way to link all SGs at the end into a single one - inheritance ?
 
+Improvements : 
+- [x] Fix bug with security group updates when IPs are less than 50 (they get duplicated in all SGs)
+- [ ] Improve grouping of all functions in Main
 ### Go Dependencies
 ```
 go get -u github.com/aws/aws-sdk-go/...

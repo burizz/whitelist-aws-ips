@@ -306,9 +306,9 @@ func checkSGCount(securityGroupIDs []string, prefixesForWhitelisting []string) e
 	sgAmountNeeded := len(prefixesForWhitelisting)/50 + 1
 	sgAmountProvided := len(securityGroupIDs)
 
-	if sgAmountProvided < sgAmountNeeded {
-		// fmt.Printf("You will need %d security groups, you porvided %d", sgAmountNeeded, sgAmountProvided)
-		errMsg := fmt.Sprintf("checkSGCount: You will need [%d] Security Groups, you provided [%d]", sgAmountNeeded, sgAmountProvided)
+	// Check if provided SGs are enough to fit all IP Ranges
+	if sgAmountProvided < sgAmountNeeded || sgAmountProvided > sgAmountNeeded {
+		errMsg := fmt.Sprintf("checkSGCount: You need [%d] Security Groups, you provided [%d]", sgAmountNeeded, sgAmountProvided)
 		return errors.New(errMsg)
 	}
 
