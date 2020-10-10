@@ -17,7 +17,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ssm"
-	// "github.com/aws/aws-lambda-go/lambda"
 )
 
 // Services - Array of AWS Services and their IP ranges
@@ -35,15 +34,15 @@ type Service struct {
 	NetworkBorderGroup string `json:"network_border_group"`
 }
 
-// https://docs.aws.amazon.com/lambda/latest/dg/golang-handler.html
-// func main() {
-//     lambda.Start(LambdaHandler)
-// }
-
-//func LambdaHandler() {}
 func main() {
+	// lambda.Start(LambdaHandler)
+	LambdaHandler()
+}
+
+// LambdaHandler - Main AWS Lambda Entrypoint
+func LambdaHandler() error {
 	// List of Security groups to be updated
-	securityGroupIDs := []string{"sg-041c5e7daf95e16a3", "sg-00ffabccebd5efda2"}
+	securityGroupIDs := []string{"sg-041c5e7daf95e16a3"}
 
 	// List of services to be whitelisted - e.g. AMAZON, COUDFRONT, S3, EC2, API_GATEWAY, DYNAMODB, ROUTE53_HEALTHCHECKS, CODEBUILD
 	servicesToBeWhitelist := []string{"S3"}
@@ -64,43 +63,43 @@ func main() {
 	// Download JSON file
 	jsonDownloadErr := downloadFile(jsonFileLocalPath, amazonIPRangesURL)
 	if jsonDownloadErr != nil {
-		panic(jsonDownloadErr)
+		return jsonDownloadErr
 	}
 
 	// Parse JSON file into Services data structure
 	awsServices, jsonParseErr := parseJSONFile(jsonFileLocalPath)
 	if jsonParseErr != nil {
-		panic(jsonParseErr)
+		return jsonParseErr
 	}
 
 	// Get IP ranges (/16) of all AWS Services that need to be whitelisted
 	prefixesForWhitelisting, ipParseErr := parseIPRanges(awsServices, servicesToBeWhitelist)
 	if ipParseErr != nil {
-		panic(ipParseErr)
+		return ipParseErr
 	}
 
 	// Check how many SGs we need
 	sgCheckErr := checkSGCount(securityGroupIDs, prefixesForWhitelisting)
 	if sgCheckErr != nil {
-		panic(sgCheckErr)
+		return sgCheckErr
 	}
 
 	// Check if AWS JSON file was modified since last run
 	jsonModifiedErr := checkIfFileModified(awsServices, previousDateParamStore, awsRegion)
 	if jsonModifiedErr != nil {
-		panic(jsonModifiedErr)
+		return jsonModifiedErr
 	}
 
 	// Check if Dynamo table exists
 	fmt.Println("Checking if DynamoDB table exists ...")
 	tablexists, dbDescribeErr := describeDynamoTable(dynamoTableName, awsRegion)
 	if dbDescribeErr != nil {
-		panic(dbDescribeErr)
+		return dbDescribeErr
 	} else if !tablexists {
 		fmt.Printf("Table [%v] does not exist", dynamoTableName)
 		dbCreateErr := createDynamoTable(dynamoTableName, awsRegion)
 		if dbCreateErr != nil {
-			panic(dbCreateErr)
+			return dbCreateErr
 		}
 	}
 
@@ -112,13 +111,13 @@ func main() {
 		// Check if IP Ranges are already whitelsited
 		ipPresent, dbGetErr := getDynamoItem(dynamoTableName, ip, awsRegion)
 		if dbGetErr != nil {
-			panic(dbGetErr)
+			return dbGetErr
 		}
 		if !ipPresent {
 			// Update DynamoDB table with IP range that is to be whitelisted
 			dbPutErr := putDynamoItem(dynamoTableName, ip, awsRegion)
 			if dbPutErr != nil {
-				panic(dbPutErr)
+				return dbPutErr
 			}
 			newIPRanges = append(newIPRanges, ip)
 			newIPCounter++
@@ -134,14 +133,15 @@ func main() {
 	// Update Security Groups Egress rules
 	updateSGErr := updateSecurityGroups(securityGroupIDs, newIPRanges, awsRegion)
 	if updateSGErr != nil {
-		panic(updateSGErr)
+		return updateSGErr
 	}
 
 	// Describe Security Group Egress rules
 	describeSGErr := describeSecurityGroups(securityGroupIDs, awsRegion)
 	if describeSGErr != nil {
-		panic(describeSGErr)
+		return describeSGErr
 	}
+	return nil
 }
 
 func downloadFile(downloadPath, amazonIPRangesURL string) error {

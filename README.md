@@ -7,8 +7,7 @@ Pulls latest JSON from - https://docs.aws.amazon.com/general/latest/gr/aws-ip-ra
 
 This is written in Go as practice for using the AWS SDK and Golang in general.
 
-This is still a work in progress : 
-
+**Initial release - v1.0** :
 - [x] Download Amazon IP range file and parse JSON data structure
 - [x] Update list of IP ranges in Security Groups / Describe Security Groups
 - [x] Work around SG limit of 60 inbound/outbound rules
@@ -21,30 +20,50 @@ This is still a work in progress :
   - [x] Add list of IP ranges in DynamoDB table
   - [x] Only update if an entry is missing
   - [x] Create list of IPs to be added in SG from DynamoDB Table
-- [ ] Implement lambda function handler instead of main
+- [x] Implement lambda function handler instead of main
+
+**Improvements - v1.1** : 
+- [x] Fix bug with security group updates when IPs are less than 50 (they get duplicated in all SGs)
+- [ ] Combine download and json parse funcs into one
+- [ ] Improve grouping of all functions in Main
 - [ ] Create SSM param store if it doesnt exist
+- [ ] Move all AWS svc client duplications to an init() function - https://tutorialedge.net/golang/the-go-init-function/; we can have more than 1 init() to initialize the multiple svc clients
 - [ ] Figure out a good way to link all SGs at the end into a single one - inheritance ?
 
-Improvements : 
-- [x] Fix bug with security group updates when IPs are less than 50 (they get duplicated in all SGs)
-- [ ] Improve grouping of all functions in Main
-### Go Dependencies
-```
-go get -u github.com/aws/aws-sdk-go/...
-go get -u github.com/aws/aws-lambda-go/lambda
-```
+## Build Lambda zip
 
-### Setup AWS Credentials
+Linux : 
 ```
-# Linux
-export AWS_ACCESS_KEY_ID=YOUR_AKID
-export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
+# Get dependency
+go get -u github.com/aws/aws-lambda-go/cmd/build-lambda-zip
 ```
 
 ```
-# Windows
-$env:AWS_ACCESS_KEY_ID='YOUR_AKID'
-$env:AWS_SECRET_ACCESS_KEY='YOUR_SECRET_KEY'
+# Compile and zip
+GOOS=linux go build main.go
+zip go_lambda.zip main
+```
+
+Windows : 
+```
+# Get dependency
+go get -u github.com/aws/aws-lambda-go/cmd/build-lambda-zip
+```
+
+```
+# Compile and zip
+$env:GOOS = "linux"
+$env:CGO_ENABLED = "0"
+$env:GOARCH = "amd64"
+go build -o main main.go
+~\Go\Bin\build-lambda-zip.exe -output go_lambda.zip main
+```
+
+### Create Lambda
+```
+aws lambda create-function --function-name my-function --runtime go1.x \
+  --zip-file fileb://go_lambda.zip --handler main \
+  --role arn:aws:iam::123456789012:role/execution_role
 ```
 
 ### Variables
@@ -65,6 +84,29 @@ previousDateParamStore := "lastModifiedDateIPRanges"
 // Set AWS Region
 awsRegion := "eu-central-1"
 ```
+
+
+## Test locally :
+
+```
+# Go Dependencies
+go get -u github.com/aws/aws-sdk-go/...
+go get -u github.com/aws/aws-lambda-go/lambda
+```
+
+### Setup AWS Credentials
+```
+# Linux
+export AWS_ACCESS_KEY_ID=YOUR_AKID
+export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
+```
+
+```
+# Windows
+$env:AWS_ACCESS_KEY_ID='YOUR_AKID'
+$env:AWS_SECRET_ACCESS_KEY='YOUR_SECRET_KEY'
+```
+
 
 ### Common errors
 
