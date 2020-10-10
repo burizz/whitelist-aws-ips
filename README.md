@@ -20,15 +20,14 @@ This is written in Go as practice for using the AWS SDK and Golang in general.
   - [x] Add list of IP ranges in DynamoDB table
   - [x] Only update if an entry is missing
   - [x] Create list of IPs to be added in SG from DynamoDB Table
-- [x] Implement lambda function handler instead of main
+- [ ] Implement Lambda function handler instead of main
 
 **Improvements - v1.1** : 
 - [x] Fix bug with security group updates when IPs are less than 50 (they get duplicated in all SGs)
-- [ ] Combine download and json parse funcs into one
-- [ ] Improve grouping of all functions in Main
+- [x] Combine download and json parse funcs into one using decoder (no need to download the file locally)
 - [ ] Create SSM param store if it doesnt exist
-- [ ] Move all AWS svc client duplications to an init() function - https://tutorialedge.net/golang/the-go-init-function/; we can have more than 1 init() to initialize the multiple svc clients
-- [ ] Figure out a good way to link all SGs at the end into a single one - inheritance ?
+- [ ] Move all AWS svc client duplications to an init() function - https://tutorialedge.net/golang/the-go-init-function/; we can have more than 1 init() to initialize the different svc clients
+- [ ] Figure out a good way to link all SGs at the end into a single one - some sort of inheritance ?
 
 ## Build Lambda zip
 
@@ -69,17 +68,19 @@ aws lambda create-function --function-name my-function --runtime go1.x \
 ### Variables
 ```
 // List of Security groups to be updated
-securityGroupIDs := []string{"sg-041c5e7daf95e16a3", "sg-00ffabccebd5efda2"}
+securityGroupIDs := []string{"sg-041c5e7daf95e16a3"}
 
 // List of services to be whitelisted - e.g. AMAZON, COUDFRONT, S3, EC2, API_GATEWAY, DYNAMODB, ROUTE53_HEALTHCHECKS, CODEBUILD
 servicesToBeWhitelist := []string{"S3"}
 
 // AWS JSON URL and local download path
 amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
-jsonFileLocalPath := "ip-ranges.json"
 
 // AWS SSM Param Store that hold the last modified date of the JSON file - format "2020-09-18-21-51-15"
 previousDateParamStore := "lastModifiedDateIPRanges"
+
+// AWS DynamoDB table to be created that will maintain a list of all whitelisted IP Ranges
+dynamoTableName := "whitelistedIPRanges"
 
 // Set AWS Region
 awsRegion := "eu-central-1"
@@ -115,12 +116,9 @@ $env:AWS_SECRET_ACCESS_KEY='YOUR_SECRET_KEY'
 # You need a IAM policy with permissions to SSM : 
 panic: AccessDeniedException: User: arn:aws:iam::111111111111:user/test is not authorized to perform: ssm:GetParameter on resource: arn:aws:ssm:eu-central-1:111111111111:parameter/lastModifiedDateIPRanges
         status code: 400, request id: 4a0ab454-176d-4bc6-9418-78529da0f944
-```
 
+# Make sure that no permissions boundary is also not limiting you in case you already have an IAM policy with sufficient access.
 ```
-# SSM Parameter Store is misspelled or does not exist :
-panic: [ERROR]: ParameterNotFound: 
-``` 
 
 ##### Security Groups
 ```

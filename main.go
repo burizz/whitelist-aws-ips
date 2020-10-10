@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -35,12 +35,11 @@ type Service struct {
 }
 
 func main() {
-	// lambda.Start(LambdaHandler)
-	LambdaHandler()
+	lambda.Start(LambdaHandler)
 }
 
 // LambdaHandler - Main AWS Lambda Entrypoint
-func LambdaHandler() error {
+func LambdaHandler() (msg string, err error) {
 	// List of Security groups to be updated
 	securityGroupIDs := []string{"sg-041c5e7daf95e16a3"}
 
@@ -49,7 +48,6 @@ func LambdaHandler() error {
 
 	// AWS JSON URL and local download path
 	amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
-	jsonFileLocalPath := "ip-ranges.json"
 
 	// AWS SSM Param Store that hold the last modified date of the JSON file - format "2020-09-18-21-51-15"
 	previousDateParamStore := "lastModifiedDateIPRanges"
@@ -60,47 +58,48 @@ func LambdaHandler() error {
 	// Set AWS Region
 	awsRegion := "eu-central-1"
 
-	// Download JSON file
-	jsonDownloadErr := downloadFile(jsonFileLocalPath, amazonIPRangesURL)
-	if jsonDownloadErr != nil {
-		return jsonDownloadErr
-	}
+	errMsg := "Error"
 
 	// Parse JSON file into Services data structure
-	awsServices, jsonParseErr := parseJSONFile(jsonFileLocalPath)
-	if jsonParseErr != nil {
-		return jsonParseErr
+	// var byteValue []byte
+	var awsServices Services
+	if jsonParseErr := parseJSONfromURL(amazonIPRangesURL, &awsServices); jsonParseErr != nil {
+		return errMsg, jsonParseErr
 	}
 
 	// Get IP ranges (/16) of all AWS Services that need to be whitelisted
 	prefixesForWhitelisting, ipParseErr := parseIPRanges(awsServices, servicesToBeWhitelist)
 	if ipParseErr != nil {
-		return ipParseErr
+		return errMsg, ipParseErr
 	}
 
 	// Check how many SGs we need
 	sgCheckErr := checkSGCount(securityGroupIDs, prefixesForWhitelisting)
 	if sgCheckErr != nil {
-		return sgCheckErr
+		return errMsg, sgCheckErr
 	}
 
 	// Check if AWS JSON file was modified since last run
-	jsonModifiedErr := checkIfFileModified(awsServices, previousDateParamStore, awsRegion)
+	checkFileMsg, jsonModifiedErr := checkIfFileModified(awsServices, previousDateParamStore, awsRegion)
 	if jsonModifiedErr != nil {
-		return jsonModifiedErr
+		return errMsg, jsonModifiedErr
 	}
+
+	fmt.Println(checkFileMsg)
 
 	// Check if Dynamo table exists
 	fmt.Println("Checking if DynamoDB table exists ...")
 	tablexists, dbDescribeErr := describeDynamoTable(dynamoTableName, awsRegion)
 	if dbDescribeErr != nil {
-		return dbDescribeErr
+		return errMsg, dbDescribeErr
 	} else if !tablexists {
 		fmt.Printf("Table [%v] does not exist", dynamoTableName)
 		dbCreateErr := createDynamoTable(dynamoTableName, awsRegion)
 		if dbCreateErr != nil {
-			return dbCreateErr
+			return errMsg, dbCreateErr
 		}
+	} else {
+		fmt.Printf("[%v] table already exists\n", dynamoTableName)
 	}
 
 	var newIPCounter int
@@ -111,89 +110,51 @@ func LambdaHandler() error {
 		// Check if IP Ranges are already whitelsited
 		ipPresent, dbGetErr := getDynamoItem(dynamoTableName, ip, awsRegion)
 		if dbGetErr != nil {
-			return dbGetErr
+			return errMsg, dbGetErr
 		}
 		if !ipPresent {
 			// Update DynamoDB table with IP range that is to be whitelisted
 			dbPutErr := putDynamoItem(dynamoTableName, ip, awsRegion)
 			if dbPutErr != nil {
-				return dbPutErr
+				return errMsg, dbPutErr
 			}
 			newIPRanges = append(newIPRanges, ip)
 			newIPCounter++
 		}
 	}
 
-	if newIPCounter > 0 {
-		fmt.Printf("Successfully updated table %v", dynamoTableName)
-	} else if newIPCounter == 0 {
-		fmt.Println("No new IP ranges found, exiting ...")
-	}
+	fmt.Printf("Successfully updated dynamo table %v\n", dynamoTableName)
 
-	// Update Security Groups Egress rules
-	updateSGErr := updateSecurityGroups(securityGroupIDs, newIPRanges, awsRegion)
-	if updateSGErr != nil {
-		return updateSGErr
+	if newIPCounter > 0 {
+		// Update Security Groups Egress rules
+		updateSGErr := updateSecurityGroups(securityGroupIDs, newIPRanges, awsRegion)
+		if updateSGErr != nil {
+			return errMsg, updateSGErr
+		}
+		fmt.Printf("Successfully populated IP addresses in security groups %v\n", securityGroupIDs)
+	} else if newIPCounter == 0 {
+		return fmt.Sprintf("Lambda exeuction completed successfully"), nil
 	}
 
 	// Describe Security Group Egress rules
 	describeSGErr := describeSecurityGroups(securityGroupIDs, awsRegion)
 	if describeSGErr != nil {
-		return describeSGErr
+		return errMsg, describeSGErr
 	}
-	return nil
+	return fmt.Sprintf("Lambda exeuction completed successfully"), nil
 }
 
-func downloadFile(downloadPath, amazonIPRangesURL string) error {
-	// Get data
-	resp, err := http.Get(amazonIPRangesURL)
+// Parse JSON get IP Ranges
+
+func parseJSONfromURL(url string, target interface{}) error {
+	var myClient = &http.Client{Timeout: 10 * time.Second}
+	r, err := myClient.Get(url)
 	if err != nil {
-		return fmt.Errorf("downloadFile: Cannot open remote URL: %w", err)
+		return fmt.Errorf("parseJSONfromURL: Cannot get JSON from URL : %w", err)
 	}
-	defer resp.Body.Close()
+	defer r.Body.Close()
 
-	// Create file
-	out, err := os.Create(downloadPath)
-	if err != nil {
-		return fmt.Errorf("downloadFile: Cannot create local file: %w", err)
-	}
-	defer out.Close()
-
-	// Write body to file
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		return fmt.Errorf("downloadFile: Cannot write Response Body to file: %w", err)
-	}
-
-	fmt.Println("Successfully downloaded: " + amazonIPRangesURL)
-	return nil
-}
-
-func parseJSONFile(jsonFilePath string) (Services, error) {
-	// Initialize JSON data structure
-	var awsServices Services
-
-	// Open JSON file
-	jsonFile, err := os.Open(jsonFilePath)
-	if err != nil {
-		return awsServices, fmt.Errorf("parseJSONFile: Cannot open JSON file: %w", err)
-	}
-
-	fmt.Println("Successfully opened: " + jsonFilePath)
-	defer jsonFile.Close()
-
-	// Read JSON file as byte array
-	byteValue, err := ioutil.ReadAll(jsonFile)
-	if err != nil {
-		return awsServices, fmt.Errorf("parseJSONFile: Cannot read JSON file as byte array: %w", err)
-	}
-	// Unmarshal byte array into ipRanges data structure
-	if err := json.Unmarshal(byteValue, &awsServices); err != nil {
-		return awsServices, fmt.Errorf("parseJSONFile: Cannot Unmarshal JSON into awsService data structure: %w", err)
-	}
-
-	fmt.Println("JSON file parsed")
-	return awsServices, nil
+	return json.NewDecoder(r.Body).Decode(target)
 }
 
 func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, error) {
@@ -226,11 +187,11 @@ func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, e
 
 // SSM Param Store Functions //
 
-func checkIfFileModified(awsServices Services, previousDateParamStore string, awsRegion string) error {
+func checkIfFileModified(awsServices Services, previousDateParamStore string, awsRegion string) (responseMsg string, err error) {
 	// Check if the AWS JSON file was modified since last run
 	previousDate, err := getParamStoreValue(previousDateParamStore, awsRegion)
 	if err != nil {
-		return fmt.Errorf("checkIfFileModified: Cannot get SSM Parameter store: %w", err)
+		return "Error", fmt.Errorf("checkIfFileModified: Cannot get SSM Parameter store: %w", err)
 	}
 
 	// Type of SSM parameter - String | StringList | SecureString
@@ -243,11 +204,10 @@ func checkIfFileModified(awsServices Services, previousDateParamStore string, aw
 		fmt.Println("AWS JSON file has changed since last run, updating creation date to " + currentDate)
 		// Update Date in SSM Param Store
 		setParamStoreValue(previousDateParamStore, currentDate, ssmParamType, awsRegion)
-	} else {
-		fmt.Println("Last modifed date : " + previousDate)
-		return fmt.Errorf("Amazon JSON file has not changed since last run, exiting ... ")
+		return fmt.Sprintf("Modified date changed"), nil
 	}
-	return nil
+	fmt.Println("Last modifed date : " + previousDate)
+	return fmt.Sprintf("Amazon JSON file has not changed since last run, exiting ..."), nil
 }
 
 func getParamStoreValue(previousDateParamStore string, awsRegion string) (string, error) {
@@ -442,7 +402,7 @@ func describeDynamoTable(dynamoTableName string, awsRegion string) (tableExists 
 		TableName: aws.String(dynamoTableName),
 	}
 
-	result, err := svc.DescribeTable(input)
+	_, err = svc.DescribeTable(input)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
@@ -459,7 +419,6 @@ func describeDynamoTable(dynamoTableName string, awsRegion string) (tableExists 
 			fmt.Println(err.Error())
 		}
 	}
-	fmt.Println(result)
 	return true, nil
 }
 
