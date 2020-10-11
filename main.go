@@ -80,12 +80,13 @@ func LambdaHandler() (msg string, err error) {
 	}
 
 	// Check if AWS JSON file was modified since last run
-	checkFileMsg, jsonModifiedErr := checkIfFileModified(awsServices, previousDateParamStore, awsRegion)
+	checkModifiedMsg, jsonModifiedErr := checkIfFileModified(awsServices, previousDateParamStore, awsRegion)
 	if jsonModifiedErr != nil {
 		return errMsg, jsonModifiedErr
+	} else if checkModifiedMsg == "skipRun" {
+		fmt.Println("Lambda exeuction completed successfully")
+		return fmt.Sprintf("Success"), nil
 	}
-
-	fmt.Println(checkFileMsg)
 
 	// Check if Dynamo table exists
 	fmt.Println("Checking if DynamoDB table exists ...")
@@ -93,7 +94,7 @@ func LambdaHandler() (msg string, err error) {
 	if dbDescribeErr != nil {
 		return errMsg, dbDescribeErr
 	} else if !tablexists {
-		fmt.Printf("Table [%v] does not exist", dynamoTableName)
+		fmt.Printf("Table [%v] does not exist\n", dynamoTableName)
 		dbCreateErr := createDynamoTable(dynamoTableName, awsRegion)
 		if dbCreateErr != nil {
 			return errMsg, dbCreateErr
@@ -105,7 +106,7 @@ func LambdaHandler() (msg string, err error) {
 	var newIPCounter int
 	var newIPRanges []string
 
-	fmt.Println("Checking if any new IP Ranges need to be whitelisted ...")
+	fmt.Println("Checking if any IP Ranges need to be whitelisted ...")
 	for _, ip := range prefixesForWhitelisting {
 		// Check if IP Ranges are already whitelsited
 		ipPresent, dbGetErr := getDynamoItem(dynamoTableName, ip, awsRegion)
@@ -123,8 +124,6 @@ func LambdaHandler() (msg string, err error) {
 		}
 	}
 
-	fmt.Printf("Successfully updated dynamo table %v\n", dynamoTableName)
-
 	if newIPCounter > 0 {
 		// Update Security Groups Egress rules
 		updateSGErr := updateSecurityGroups(securityGroupIDs, newIPRanges, awsRegion)
@@ -133,7 +132,9 @@ func LambdaHandler() (msg string, err error) {
 		}
 		fmt.Printf("Successfully populated IP addresses in security groups %v\n", securityGroupIDs)
 	} else if newIPCounter == 0 {
-		return fmt.Sprintf("Lambda exeuction completed successfully"), nil
+		fmt.Println("No new IP Ranges found, exiting")
+		fmt.Println("Lambda exeuction completed successfully")
+		return fmt.Sprintf("Success"), nil
 	}
 
 	// Describe Security Group Egress rules
@@ -141,7 +142,8 @@ func LambdaHandler() (msg string, err error) {
 	if describeSGErr != nil {
 		return errMsg, describeSGErr
 	}
-	return fmt.Sprintf("Lambda exeuction completed successfully"), nil
+	fmt.Println("Lambda exeuction completed successfully")
+	return fmt.Sprintf("Success"), nil
 }
 
 // Parse JSON get IP Ranges
@@ -180,8 +182,8 @@ func parseIPRanges(awsServices Services, serviceWhitelist []string) ([]string, e
 		return prefixesForWhitelisting, fmt.Errorf("parseIPRanges: No IP ranges added in list")
 	}
 
-	fmt.Printf("Amount of IP Ranges to be whitelisted [%v]", len(prefixesForWhitelisting))
-	fmt.Printf("List of IP Ranges %v\n", prefixesForWhitelisting)
+	fmt.Printf("IP Ranges that need to be in whitelist: [%v]\n", len(prefixesForWhitelisting))
+	fmt.Printf("List of IP Ranges : %v\n", prefixesForWhitelisting)
 	return prefixesForWhitelisting, nil
 }
 
@@ -200,14 +202,16 @@ func checkIfFileModified(awsServices Services, previousDateParamStore string, aw
 	// Verify if file has changes since last update
 	var currentDate = awsServices.CreationDate
 	if previousDate != currentDate {
-		fmt.Println("Previous Date " + previousDate)
-		fmt.Println("AWS JSON file has changed since last run, updating creation date to " + currentDate)
+		fmt.Println("AWS JSON file has changed since last run, previous date: " + previousDate)
+		fmt.Println("Updating creation date to " + currentDate)
 		// Update Date in SSM Param Store
 		setParamStoreValue(previousDateParamStore, currentDate, ssmParamType, awsRegion)
-		return fmt.Sprintf("Modified date changed"), nil
+		fmt.Println("Modified date changed")
+		return fmt.Sprintf("Success"), nil
 	}
 	fmt.Println("Last modifed date : " + previousDate)
-	return fmt.Sprintf("Amazon JSON file has not changed since last run, exiting ..."), nil
+	fmt.Println("Amazon JSON file has not changed since last run, exiting ...")
+	return fmt.Sprintf("skipRun"), nil
 }
 
 func getParamStoreValue(previousDateParamStore string, awsRegion string) (string, error) {
@@ -230,7 +234,6 @@ func getParamStoreValue(previousDateParamStore string, awsRegion string) (string
 		return previousDateParamStore, fmt.Errorf("getParamStoreValue: Get SSM Parameter: %w", err)
 	}
 	paramValue := *paramKey.Parameter.Value
-	fmt.Println(paramValue)
 	return paramValue, nil
 }
 
@@ -484,34 +487,34 @@ func getDynamoItem(dynamoTableName string, ipRange string, awsRegion string) (ip
 		TableName: aws.String(dynamoTableName),
 	}
 
+	fmt.Println("Checking item: " + ipRange)
+
 	result, err := svc.GetItem(input)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
 			case dynamodb.ErrCodeProvisionedThroughputExceededException:
-				return true, fmt.Errorf("getDynamoItem: %v", err)
+				return false, fmt.Errorf("getDynamoItem: %v", err)
 			case dynamodb.ErrCodeResourceNotFoundException:
-				return true, nil
+				// nil because we dont want it stop executing when item is missing in DB, as we add it later
+				return false, nil
 			case dynamodb.ErrCodeRequestLimitExceeded:
-				return true, fmt.Errorf("getDynamoItem: %v", err)
+				return false, fmt.Errorf("getDynamoItem: %v", err)
 			case dynamodb.ErrCodeInternalServerError:
-				return true, fmt.Errorf("getDynamoItem: %v", err)
+				return false, fmt.Errorf("getDynamoItem: %v", err)
 			default:
-				return true, fmt.Errorf("getDynamoItem: %v", err)
+				return false, fmt.Errorf("getDynamoItem: %v", err)
 			}
 		} else {
 			// Print the error, cast err to awserr.Error to get the Code and
 			// Message from an error.
 			fmt.Println(err.Error())
 		}
-		return true, err
 	}
-
 	stringResult := result.GoString()
 
 	// Regex to match IP address
 	re := regexp.MustCompile(`(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}`)
-
 	// Return true if IP Range already in Dynamo table
 	return re.MatchString(stringResult), nil
 }
@@ -540,10 +543,33 @@ func putDynamoItem(dynamoTableName string, ipRange string, awsRegion string) err
 		TableName:              aws.String(dynamoTableName),
 	}
 	if _, err := svc.PutItem(input); err != nil {
-		return fmt.Errorf("putDynamoItem: Unable to put Item in DynamoDB : %v", err)
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case dynamodb.ErrCodeConditionalCheckFailedException:
+				fmt.Println(dynamodb.ErrCodeConditionalCheckFailedException, aerr.Error())
+			case dynamodb.ErrCodeProvisionedThroughputExceededException:
+				fmt.Println(dynamodb.ErrCodeProvisionedThroughputExceededException, aerr.Error())
+			case dynamodb.ErrCodeResourceNotFoundException:
+				fmt.Println(dynamodb.ErrCodeResourceNotFoundException, aerr.Error())
+			case dynamodb.ErrCodeItemCollectionSizeLimitExceededException:
+				fmt.Println(dynamodb.ErrCodeItemCollectionSizeLimitExceededException, aerr.Error())
+			case dynamodb.ErrCodeTransactionConflictException:
+				fmt.Println(dynamodb.ErrCodeTransactionConflictException, aerr.Error())
+			case dynamodb.ErrCodeRequestLimitExceeded:
+				fmt.Println(dynamodb.ErrCodeRequestLimitExceeded, aerr.Error())
+			case dynamodb.ErrCodeInternalServerError:
+				fmt.Println(dynamodb.ErrCodeInternalServerError, aerr.Error())
+			default:
+				fmt.Println(aerr.Error())
+			}
+		} else {
+			// Print the error, cast err to awserr.Error to get the Code and
+			// Message from an error.
+			fmt.Println(err.Error())
+		}
 	}
-
 	fmt.Printf("Adding IP in Dynamo table : %v\n", ipRange)
+	fmt.Printf("Successfully updated dynamo table %v\n", dynamoTableName)
 	return nil
 }
 
