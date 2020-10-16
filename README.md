@@ -25,6 +25,7 @@ This is written in Go as practice for using the AWS SDK and Golang in general.
 **Improvements - v1.1** : 
 - [x] Combine download and json parse funcs into one using decoder (no need to download the file locally)
 - [x] Add Lambda trigger example in Readme
+- [ ] Move all vars to be taken from Lambda ENV vars instead of hardcoded
 - [ ] Create SSM param store if it doesnt exist
 - [ ] Move all AWS svc client duplications to an init() function - https://tutorialedge.net/golang/the-go-init-function/; we can have more than 1 init() to initialize the different svc clients
 - [ ] Figure out a good way to link all SGs at the end into a single one - some sort of inheritance ?
@@ -69,7 +70,7 @@ aws lambda create-function --function-name my-function --runtime go1.x \
   --zip-file fileb://go_lambda.zip --handler main \
   --role arn:aws:iam::123456789012:role/execution_role
 ```
-You need to also setup a Lambda Trigger, e.g. time based :
+Setup a Lambda Trigger, e.g. time based :
 EventBridge trigger - scheduled expressions
 ```
 # Run every hour
