@@ -25,7 +25,7 @@ This is written in Go as practice for using the AWS SDK and Golang in general.
 **Improvements - v1.1** : 
 - [x] Combine download and json parse funcs into one using decoder (no need to download the file locally)
 - [x] Add Lambda trigger example in Readme
-- [ ] Move all vars to be taken from Lambda ENV vars instead of hardcoded
+- [x] Move all vars to be taken from Lambda ENV vars instead of hardcoded
 - [ ] Create SSM param store if it doesnt exist
 - [ ] Move all AWS svc client duplications to an init() function - https://tutorialedge.net/golang/the-go-init-function/; we can have more than 1 init() to initialize the different svc clients
 - [ ] Figure out a good way to link all SGs at the end into a single one - some sort of inheritance ?
@@ -45,8 +45,7 @@ go get -u github.com/aws/aws-lambda-go/cmd/build-lambda-zip
 
 ```
 # Compile and zip
-GOOS=linux go build main.go
-zip go_lambda.zip main
+GOOS=linux go build main.go && zip go_lambda.zip main
 ```
 
 Windows : 
@@ -60,8 +59,7 @@ go get -u github.com/aws/aws-lambda-go/cmd/build-lambda-zip
 $env:GOOS = "linux"
 $env:CGO_ENABLED = "0"
 $env:GOARCH = "amd64"
-go build -o main main.go
-~\Go\Bin\build-lambda-zip.exe -output go_lambda.zip main
+go build -o main main.go; ~\Go\Bin\build-lambda-zip.exe -output go_lambda.zip main
 ```
 
 ### Create Lambda
@@ -69,8 +67,21 @@ go build -o main main.go
 aws lambda create-function --function-name my-function --runtime go1.x \
   --zip-file fileb://go_lambda.zip --handler main \
   --role arn:aws:iam::123456789012:role/execution_role
+
 ```
-Setup a Lambda Trigger, e.g. time based :
+Setup Lambda env variables :
+
+|  Key | Value  | Description |
+|---|---|---|---|
+| amazonIPRangesURL |	https://ip-ranges.amazonaws.com/ip-ranges.json | URL with AWS IP ranges |
+| awsRegion  | eu-central-1 | AWS Region |
+| dynamoTableName  | whitelistedIPRanges | Name of DynamoDB table to store whitelisted IP ranges |
+| previousDateParamStore  | lastModifiedDateIPRanges | SSM Param store name to keep modified date of AWS JSON file |
+| securityGroupIDs  | sg-041c5e7daf95e16a3 | Comma separated list of Security groups (no spaces) |
+| servicesToBeWhitelist  | S3 | Comma separated list of AWS Services from JSON list (no spaces) |
+
+
+Setup a Lambda Trigger, e.g. time based
 EventBridge trigger - scheduled expressions
 ```
 # Run every hour

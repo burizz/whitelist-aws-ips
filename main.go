@@ -41,22 +41,30 @@ func main() {
 // LambdaHandler - Main AWS Lambda Entrypoint
 func LambdaHandler() (msg string, err error) {
 	// List of Security groups to be updated
-	securityGroupIDs := []string{"sg-041c5e7daf95e16a3"}
+	// securityGroupIDs := []string{"sg-041c5e7daf95e16a3", "sg-00ffabccebd5efda2"}
+	// Comma-serpated env var - no spaces
+	securityGroupIDs := strings.Split(os.Getenv("securityGroupIDs"), ",")
 
 	// List of services to be whitelisted - e.g. AMAZON, COUDFRONT, S3, EC2, API_GATEWAY, DYNAMODB, ROUTE53_HEALTHCHECKS, CODEBUILD
-	servicesToBeWhitelist := []string{"S3"}
+	// servicesToBeWhitelist := []string{"S3", "API_GATEWAY"}
+	// Comma-serpated env var - no spaces
+	servicesToBeWhitelist := strings.Split(os.Getenv("servicesToBeWhitelist"), ",")
 
 	// AWS JSON URL and local download path
-	amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
+	// amazonIPRangesURL := "https://ip-ranges.amazonaws.com/ip-ranges.json"
+	amazonIPRangesURL := os.Getenv("amazonIPRangesURL")
 
 	// AWS SSM Param Store that hold the last modified date of the JSON file - format "2020-09-18-21-51-15"
-	previousDateParamStore := "lastModifiedDateIPRanges"
+	// previousDateParamStore := "lastModifiedDateIPRanges"
+	previousDateParamStore := os.Getenv("previousDateParamStore")
 
 	// AWS DynamoDB table to be created that will maintain a list of all whitelisted IP Ranges
-	dynamoTableName := "whitelistedIPRanges"
+	// dynamoTableName := "whitelistedIPRanges"
+	dynamoTableName := os.Getenv("dynamoTableName")
 
 	// Set AWS Region
-	awsRegion := "eu-central-1"
+	// awsRegion := "eu-central-1"
+	awsRegion := os.Getenv("awsRegion")
 
 	errMsg := "Error"
 
@@ -203,7 +211,7 @@ func checkIfFileModified(awsServices Services, previousDateParamStore string, aw
 	var currentDate = awsServices.CreationDate
 	if previousDate != currentDate {
 		fmt.Println("AWS JSON file has changed since last run, previous date: " + previousDate)
-		fmt.Println("Updating creation date to " + currentDate)
+		fmt.Println("Updating modified date to " + currentDate)
 		// Update Date in SSM Param Store
 		setParamStoreValue(previousDateParamStore, currentDate, ssmParamType, awsRegion)
 		fmt.Println("Modified date changed")
@@ -303,7 +311,7 @@ func updateSecurityGroups(securityGroupIDs []string, newIPRanges []string, awsRe
 
 			// Max 50 IP ranges per SG
 			if counter >= 50 {
-				fmt.Printf("updateSecurityGroups: Security group %v full, moving to next one", securityGroup)
+				fmt.Printf("updateSecurityGroups: Security group %v full, moving to next one\n", securityGroup)
 				counter = 0
 				break
 			} else {
