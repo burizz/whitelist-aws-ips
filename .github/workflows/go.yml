@@ -1,0 +1,43 @@
+name: whitelist-aws-ips-Go
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    env:
+      # Setup GOPATH in current workspace dir
+      GOPATH: ${{ github.workspace }}
+    steps:
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v2
+      with:
+        go-version: ^1.15
+      id: go
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v2
+      with:
+        # Clone repo inside GOPATH/src/ dir
+        path: ./src/github.com/${{ github.repository }}
+    - name: Get dependencies
+      run: |
+        cd ./src/github.com/${{ github.repository }}
+        go get -v -t -d ./...
+        if [ -f Gopkg.toml ]; then
+            curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+            dep ensure
+        fi
+        ls -lah
+        ls -lah ${{ github.workspace }}
+
+    - name: Build
+      run: cd ./src/github.com/${{ github.repository }} && go build -v .
+
+    - name: Test
+      run: cd ./src/github.com/${{ github.repository }} && go test -v .
