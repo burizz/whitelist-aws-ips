@@ -156,12 +156,14 @@ panic: [ERROR]: You will need [5] Security Groups, you provided [2]
   - [x] Only update if an entry is missing
   - [x] Create list of IPs to be added in SG from DynamoDB Table
 - [x] Implement Lambda handler
+- [x] Create initial release v1
 
 **Improvements - v1.1** : 
 - [x] Combine download and json parse funcs into one using decoder (no need to download the file locally)
 - [x] Add Lambda trigger example in Readme
 - [x] Move all vars to be taken from Lambda ENV vars instead of hardcoded
 - [x] Handle dependencies as Go modules
+- [x] Add CI with Github actions
 - [ ] Create SSM param store if it doesnt exist
 - [ ] Move all AWS svc client duplications to an init() function - https://tutorialedge.net/golang/the-go-init-function/; we can have more than 1 init() to initialize the different svc clients
 - [ ] Figure out a good way to link all SGs at the end into a single one - some sort of inheritance ?
