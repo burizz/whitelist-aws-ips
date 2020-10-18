@@ -72,7 +72,7 @@ aws lambda create-function --function-name my-function --runtime go1.x \
 Setup Lambda env variables :
 
 |  Key | Value  | Description |
-|---|---|---|---|
+|---   |---     |---          |
 | amazonIPRangesURL |	https://ip-ranges.amazonaws.com/ip-ranges.json | URL with AWS IP ranges |
 | awsRegion  | eu-central-1 | AWS Region |
 | dynamoTableName  | whitelistedIPRanges | Name of DynamoDB table to store whitelisted IP ranges |
@@ -92,6 +92,7 @@ cron(0/30 * * * ? *)
 ```
 
 ### IAM Policy Permissions needed
+TODO: add IAM policy example
 ```
 SSM Param Store - Get/Put Parameter
 Cloudwatch - log groups
@@ -99,7 +100,30 @@ DynamoDB - create/describe table, get/put item
 Security Groups - update
 ```
 
-### Variables
+
+### Test locally :
+
+```
+# Go Dependencies
+go get -u github.com/aws/aws-sdk-go/...
+go get -u github.com/aws/aws-lambda-go/lambda
+```
+
+
+Setup AWS Credentials
+```
+# Linux
+export AWS_ACCESS_KEY_ID=YOUR_AKID
+export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
+```
+
+```
+# Windows
+$env:AWS_ACCESS_KEY_ID='YOUR_AKID'
+$env:AWS_SECRET_ACCESS_KEY='YOUR_SECRET_KEY'
+```
+
+Hardcoded Variables example
 ```
 // List of Security groups to be updated
 securityGroupIDs := []string{"sg-041c5e7daf95e16a3"}
@@ -119,29 +143,6 @@ dynamoTableName := "whitelistedIPRanges"
 // Set AWS Region
 awsRegion := "eu-central-1"
 ```
-
-
-## Test locally :
-
-```
-# Go Dependencies
-go get -u github.com/aws/aws-sdk-go/...
-go get -u github.com/aws/aws-lambda-go/lambda
-```
-
-### Setup AWS Credentials
-```
-# Linux
-export AWS_ACCESS_KEY_ID=YOUR_AKID
-export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
-```
-
-```
-# Windows
-$env:AWS_ACCESS_KEY_ID='YOUR_AKID'
-$env:AWS_SECRET_ACCESS_KEY='YOUR_SECRET_KEY'
-```
-
 
 ### Common errors
 
