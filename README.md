@@ -9,6 +9,8 @@ This is written in Go as practice for using the AWS SDK and Golang in general.
 
 ## Build Lambda zip
 
+Locally :
+
 Linux : 
 ```
 # Get dependency
@@ -32,6 +34,25 @@ $env:GOOS = "linux"
 $env:CGO_ENABLED = "0"
 $env:GOARCH = "amd64"
 go build -o main main.go; ~\Go\Bin\build-lambda-zip.exe -output go_lambda.zip main
+```
+
+Using Make : 
+
+```
+$ make run
+go run main.go
+Hello
+
+$ make build                                      
+go build -o bin/lambda lambda.go
+
+$ make compile
+echo "Compiling for every OS and Platform"
+Compiling for every OS and Platform
+# Linux
+GOOS=linux GOARCH=amd64 go build -o bin/lambda-linux-amd64 lambda.go
+# Windows binary
+GOOS=windows GOARCH=amd64 go build -o bin/lambda-windows-amd64 lambda.go
 ```
 
 ### Create Lambda
